@@ -163,8 +163,8 @@ const getFieldOptions = async (fieldId) => {
   try {
     console.log(`Fetching options for field ${fieldId}`);
     
-    // Use the correct endpoint for custom field options
-    const url = `https://${process.env.JIRA_HOST}/rest/api/3/issue/createmeta/AS/issuetypes/10001?expand=projects.issuetypes.fields`;
+    // Using the Gateway API endpoint
+    const url = `https://${process.env.JIRA_HOST}/gateway/api/gasv3/api/v1/field/${fieldId}/context/options`;
     console.log('Request URL:', url);
 
     const response = await axios({
@@ -175,21 +175,20 @@ const getFieldOptions = async (fieldId) => {
         password: process.env.JIRA_API_TOKEN
       },
       headers: {
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
       }
     });
     
     console.log('Raw API Response:', JSON.stringify(response.data, null, 2));
     
-    // Extract options for the specific custom field
-    const fieldData = response.data.fields[fieldId];
-    if (fieldData && fieldData.allowedValues) {
-      return fieldData.allowedValues.map(option => ({
+    if (response.data && response.data.options) {
+      return response.data.options.map(option => ({
         text: {
           type: 'plain_text',
-          text: option.value || option.name
+          text: option.label || option.value
         },
-        value: option.id
+        value: option.id || option.value
       }));
     }
     
@@ -214,7 +213,11 @@ const getFieldOptions = async (fieldId) => {
   } catch (error) {
     console.error('Error fetching field options:', error.message);
     if (error.response) {
-      console.error('Error details:', error.response.data);
+      console.error('Error response:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      });
     }
     
     // Return default options if the API call fails
