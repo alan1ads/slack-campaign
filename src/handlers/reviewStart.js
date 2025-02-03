@@ -163,32 +163,30 @@ const getFieldOptions = async (fieldId) => {
   try {
     console.log(`Fetching options for field ${fieldId}`);
     
-    // Using the Gateway API endpoint
-    const url = `https://${process.env.JIRA_HOST}/gateway/api/gasv3/api/v1/field/${fieldId}/context/options`;
+    // Use the specific context ID we found
+    const url = `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/10316/option`;
     console.log('Request URL:', url);
 
     const response = await axios({
       method: 'GET',
       url: url,
-      auth: {
-        username: process.env.JIRA_EMAIL,
-        password: process.env.JIRA_API_TOKEN
-      },
       headers: {
         'Accept': 'application/json',
-        'Content-Type': 'application/json'
+        'Authorization': `Basic ${Buffer.from(
+          `${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`
+        ).toString('base64')}`
       }
     });
     
     console.log('Raw API Response:', JSON.stringify(response.data, null, 2));
     
-    if (response.data && response.data.options) {
-      return response.data.options.map(option => ({
+    if (response.data && response.data.values) {
+      return response.data.values.map(option => ({
         text: {
           type: 'plain_text',
-          text: option.label || option.value
+          text: option.value
         },
-        value: option.id || option.value
+        value: option.id
       }));
     }
     
@@ -220,7 +218,6 @@ const getFieldOptions = async (fieldId) => {
       });
     }
     
-    // Return default options if the API call fails
     return [
       {
         text: {
