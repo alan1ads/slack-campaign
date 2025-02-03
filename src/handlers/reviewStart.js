@@ -160,28 +160,49 @@ const FORM_BLOCKS = {
 };
 
 const getFieldOptions = async (fieldId) => {
-  const response = await axios({
-    method: 'GET',
-    url: `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/10000/option`,
-    auth: {
-      username: process.env.JIRA_EMAIL,
-      password: process.env.JIRA_API_TOKEN
+  try {
+    console.log(`Fetching options for field ${fieldId}`); // For debugging
+    
+    const response = await axios({
+      method: 'GET',
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/10000/option`,
+      auth: {
+        username: process.env.JIRA_EMAIL,
+        password: process.env.JIRA_API_TOKEN
+      },
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    
+    console.log('API Response:', response.data); // For debugging
+    
+    if (!response.data.values) {
+      throw new Error('No options found in response');
     }
-  });
-  
-  return response.data.values.map(option => ({
-    text: {
-      type: 'plain_text',
-      text: option.value
-    },
-    value: option.id
-  }));
+    
+    return response.data.values.map(option => ({
+      text: {
+        type: 'plain_text',
+        text: option.value
+      },
+      value: option.id
+    }));
+  } catch (error) {
+    console.error('Error fetching field options:', error);
+    console.error('Error details:', error.response?.data); // Log detailed error
+    throw new Error(`Failed to fetch options for field ${fieldId}: ${error.message}`);
+  }
 };
 
 const reviewStart = async ({ command, ack, client }) => {
   await ack();
 
   try {
+    // Fetch vertical options from Jira
+    const verticalOptions = await getFieldOptions(process.env.JIRA_VERTICAL_FIELD);
+    console.log('Fetched vertical options:', verticalOptions); // For debugging
+
     const result = await client.views.open({
       trigger_id: command.trigger_id,
       view: {
@@ -239,16 +260,7 @@ const reviewStart = async ({ command, ack, client }) => {
                 type: 'plain_text',
                 text: 'Select Vertical'
               },
-              options: [
-                {
-                  text: {
-                    type: 'plain_text',
-                    text: 'Medicare'
-                  },
-                  value: '10586'
-                }
-                // Add other verticals here
-              ]
+              options: verticalOptions // Use dynamically fetched options
             },
             label: {
               type: 'plain_text',
