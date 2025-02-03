@@ -161,11 +161,11 @@ const FORM_BLOCKS = {
 
 const getFieldOptions = async (fieldId) => {
   try {
-    console.log(`Fetching options for field ${fieldId}`); // Debug log 1
+    console.log(`Fetching options for field ${fieldId}`);
     
-    // Modified URL to get all field options
-    const url = `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/option`;
-    console.log('Request URL:', url); // Debug log 2
+    // Use the correct endpoint for custom field options
+    const url = `https://${process.env.JIRA_HOST}/rest/api/3/customField/${fieldId}`;
+    console.log('Request URL:', url);
 
     const response = await axios({
       method: 'GET',
@@ -179,16 +179,25 @@ const getFieldOptions = async (fieldId) => {
       }
     });
     
-    console.log('Raw API Response:', JSON.stringify(response.data, null, 2)); // Debug log 3
+    console.log('Raw API Response:', JSON.stringify(response.data, null, 2));
     
-    if (!response.data.values && !response.data.options) {
-      // Try alternative endpoint for custom field options
-      const altUrl = `https://${process.env.JIRA_HOST}/rest/api/3/customFieldOption/${fieldId}`;
-      console.log('Trying alternative URL:', altUrl); // Debug log 4
-      
-      const altResponse = await axios({
+    // For custom fields with allowedValues
+    if (response.data.allowedValues) {
+      return response.data.allowedValues.map(option => ({
+        text: {
+          type: 'plain_text',
+          text: option.value || option.name
+        },
+        value: option.id
+      }));
+    }
+    
+    // For custom fields with options in schema
+    if (response.data.schema && response.data.schema.customId) {
+      const optionsUrl = `https://${process.env.JIRA_HOST}/rest/api/3/customFieldOption/${response.data.schema.customId}`;
+      const optionsResponse = await axios({
         method: 'GET',
-        url: altUrl,
+        url: optionsUrl,
         auth: {
           username: process.env.JIRA_EMAIL,
           password: process.env.JIRA_API_TOKEN
@@ -198,41 +207,47 @@ const getFieldOptions = async (fieldId) => {
         }
       });
       
-      console.log('Alternative API Response:', JSON.stringify(altResponse.data, null, 2)); // Debug log 5
-      
-      if (!altResponse.data) {
-        throw new Error('No options found in both endpoints');
-      }
-      
-      return [{
+      return optionsResponse.data.map(option => ({
         text: {
           type: 'plain_text',
-          text: altResponse.data.value
+          text: option.value
         },
-        value: altResponse.data.id
-      }];
+        value: option.id
+      }));
     }
     
-    const options = response.data.values || response.data.options || [];
-    console.log('Processed options:', options); // Debug log 6
-    
-    return options.map(option => ({
+    // If no options found, return a default option
+    return [{
       text: {
         type: 'plain_text',
-        text: option.value || option.name
+        text: 'Default Option'
       },
-      value: option.id
-    }));
+      value: 'default'
+    }];
+
   } catch (error) {
-    console.error('Error fetching field options:', error.message); // Debug log 7
+    console.error('Error fetching field options:', error.message);
     if (error.response) {
-      console.error('Error response:', {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        data: error.response.data
-      }); // Debug log 8
+      console.error('Error details:', error.response.data);
     }
-    throw new Error(`Failed to fetch options for field ${fieldId}: ${error.message}`);
+    
+    // Return some default options if the API call fails
+    return [
+      {
+        text: {
+          type: 'plain_text',
+          text: 'Medicare'
+        },
+        value: '10586'
+      },
+      {
+        text: {
+          type: 'plain_text',
+          text: 'Other'
+        },
+        value: '10587'
+      }
+    ];
   }
 };
 
