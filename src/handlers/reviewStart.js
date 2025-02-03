@@ -281,9 +281,14 @@ const reviewStart = async ({ command, ack, client }) => {
   await ack();
 
   try {
-    // Fetch vertical options from Jira
-    const verticalOptions = await getFieldOptions(process.env.JIRA_VERTICAL_FIELD);
-    console.log('Fetched vertical options:', verticalOptions); // For debugging
+    // Fetch both vertical and traffic source options from Jira
+    const [verticalOptions, trafficSourceOptions] = await Promise.all([
+      getFieldOptions(process.env.JIRA_VERTICAL_FIELD),
+      getFieldOptions(process.env.JIRA_TRAFFIC_SOURCE_FIELD)
+    ]);
+    
+    console.log('Fetched vertical options:', verticalOptions);
+    console.log('Fetched traffic source options:', trafficSourceOptions);
 
     const result = await client.views.open({
       trigger_id: command.trigger_id,
@@ -342,7 +347,7 @@ const reviewStart = async ({ command, ack, client }) => {
                 type: 'plain_text',
                 text: 'Select Vertical'
               },
-              options: verticalOptions // Use dynamically fetched options
+              options: verticalOptions
             },
             label: {
               type: 'plain_text',
@@ -359,16 +364,7 @@ const reviewStart = async ({ command, ack, client }) => {
                 type: 'plain_text',
                 text: 'Select Traffic Source'
               },
-              options: [
-                {
-                  text: {
-                    type: 'plain_text',
-                    text: 'Facebook'
-                  },
-                  value: '10572'
-                }
-                // Add other traffic sources here
-              ]
+              options: trafficSourceOptions
             },
             label: {
               type: 'plain_text',
