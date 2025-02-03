@@ -163,8 +163,18 @@ const getFieldOptions = async (fieldId) => {
   try {
     console.log(`Fetching options for field ${fieldId}`);
     
-    // Use the specific context ID we found
-    const url = `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/10316/option`;
+    // Map of field IDs to their context IDs
+    const contextIds = {
+      'customfield_10195': '10316', // Vertical
+      'customfield_10194': '10315'  // Traffic Source
+    };
+    
+    const contextId = contextIds[fieldId];
+    if (!contextId) {
+      throw new Error(`No context ID found for field ${fieldId}`);
+    }
+    
+    const url = `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/${contextId}/option`;
     console.log('Request URL:', url);
 
     const response = await axios({
@@ -178,7 +188,7 @@ const getFieldOptions = async (fieldId) => {
       }
     });
     
-    console.log('Raw API Response:', JSON.stringify(response.data, null, 2));
+    console.log(`Options for ${fieldId}:`, JSON.stringify(response.data, null, 2));
     
     if (response.data && response.data.values) {
       return response.data.values.map(option => ({
@@ -191,22 +201,37 @@ const getFieldOptions = async (fieldId) => {
     }
     
     console.warn(`No options found for field ${fieldId}`);
-    return [
-      {
-        text: {
-          type: 'plain_text',
-          text: 'Medicare'
+    
+    // Default options based on field ID
+    const defaultOptions = {
+      'customfield_10195': [ // Vertical
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Medicare'
+          },
+          value: '10586'
         },
-        value: '10586'
-      },
-      {
-        text: {
-          type: 'plain_text',
-          text: 'Other'
-        },
-        value: '10587'
-      }
-    ];
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Other'
+          },
+          value: '10587'
+        }
+      ],
+      'customfield_10194': [ // Traffic Source
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Default Traffic Source'
+          },
+          value: 'default'
+        }
+      ]
+    };
+    
+    return defaultOptions[fieldId] || [];
 
   } catch (error) {
     console.error('Error fetching field options:', error.message);
@@ -218,22 +243,37 @@ const getFieldOptions = async (fieldId) => {
       });
     }
     
-    return [
-      {
-        text: {
-          type: 'plain_text',
-          text: 'Medicare'
+    // Return field-specific default options on error
+    if (fieldId === 'customfield_10195') { // Vertical
+      return [
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Medicare'
+          },
+          value: '10586'
         },
-        value: '10586'
-      },
-      {
-        text: {
-          type: 'plain_text',
-          text: 'Other'
-        },
-        value: '10587'
-      }
-    ];
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Other'
+          },
+          value: '10587'
+        }
+      ];
+    } else if (fieldId === 'customfield_10194') { // Traffic Source
+      return [
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Default Traffic Source'
+          },
+          value: 'default'
+        }
+      ];
+    }
+    
+    return [];
   }
 };
 
