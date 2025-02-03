@@ -164,7 +164,7 @@ const getFieldOptions = async (fieldId) => {
     console.log(`Fetching options for field ${fieldId}`);
     
     // Use the correct endpoint for custom field options
-    const url = `https://${process.env.JIRA_HOST}/rest/api/3/customField/${fieldId}`;
+    const url = `https://${process.env.JIRA_HOST}/rest/api/3/issue/createmeta/AS/issuetypes/10001?expand=projects.issuetypes.fields`;
     console.log('Request URL:', url);
 
     const response = await axios({
@@ -181,9 +181,10 @@ const getFieldOptions = async (fieldId) => {
     
     console.log('Raw API Response:', JSON.stringify(response.data, null, 2));
     
-    // For custom fields with allowedValues
-    if (response.data.allowedValues) {
-      return response.data.allowedValues.map(option => ({
+    // Extract options for the specific custom field
+    const fieldData = response.data.fields[fieldId];
+    if (fieldData && fieldData.allowedValues) {
+      return fieldData.allowedValues.map(option => ({
         text: {
           type: 'plain_text',
           text: option.value || option.name
@@ -192,38 +193,23 @@ const getFieldOptions = async (fieldId) => {
       }));
     }
     
-    // For custom fields with options in schema
-    if (response.data.schema && response.data.schema.customId) {
-      const optionsUrl = `https://${process.env.JIRA_HOST}/rest/api/3/customFieldOption/${response.data.schema.customId}`;
-      const optionsResponse = await axios({
-        method: 'GET',
-        url: optionsUrl,
-        auth: {
-          username: process.env.JIRA_EMAIL,
-          password: process.env.JIRA_API_TOKEN
-        },
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
-      
-      return optionsResponse.data.map(option => ({
+    console.warn(`No options found for field ${fieldId}`);
+    return [
+      {
         text: {
           type: 'plain_text',
-          text: option.value
+          text: 'Medicare'
         },
-        value: option.id
-      }));
-    }
-    
-    // If no options found, return a default option
-    return [{
-      text: {
-        type: 'plain_text',
-        text: 'Default Option'
+        value: '10586'
       },
-      value: 'default'
-    }];
+      {
+        text: {
+          type: 'plain_text',
+          text: 'Other'
+        },
+        value: '10587'
+      }
+    ];
 
   } catch (error) {
     console.error('Error fetching field options:', error.message);
@@ -231,7 +217,7 @@ const getFieldOptions = async (fieldId) => {
       console.error('Error details:', error.response.data);
     }
     
-    // Return some default options if the API call fails
+    // Return default options if the API call fails
     return [
       {
         text: {
