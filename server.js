@@ -1,5 +1,6 @@
 const { App } = require('@slack/bolt');
 require('dotenv').config();
+const http = require('http');
 
 // Import all handlers
 const findJiraFields = require('./src/handlers/findJiraFields');
@@ -174,4 +175,12 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
 (async () => {
   await app.start();
   console.log('⚡️ Bolt app is running with Socket Mode!');
+
+  // Create a basic HTTP server for health checks
+  const server = http.createServer((req, res) => {
+    res.writeHead(200);
+    res.end('Health check passed');
+  });
+
+  server.listen(process.env.PORT || 3000);
 })();
