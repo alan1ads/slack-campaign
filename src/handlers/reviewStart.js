@@ -161,11 +161,15 @@ const FORM_BLOCKS = {
 
 const getFieldOptions = async (fieldId) => {
   try {
-    console.log(`Fetching options for field ${fieldId}`); // For debugging
+    console.log(`Fetching options for field ${fieldId}`); // Debug log 1
     
+    // Modified URL to get all field options
+    const url = `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/option`;
+    console.log('Request URL:', url); // Debug log 2
+
     const response = await axios({
       method: 'GET',
-      url: `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/10000/option`,
+      url: url,
       auth: {
         username: process.env.JIRA_EMAIL,
         password: process.env.JIRA_API_TOKEN
@@ -175,22 +179,59 @@ const getFieldOptions = async (fieldId) => {
       }
     });
     
-    console.log('API Response:', response.data); // For debugging
+    console.log('Raw API Response:', JSON.stringify(response.data, null, 2)); // Debug log 3
     
-    if (!response.data.values) {
-      throw new Error('No options found in response');
+    if (!response.data.values && !response.data.options) {
+      // Try alternative endpoint for custom field options
+      const altUrl = `https://${process.env.JIRA_HOST}/rest/api/3/customFieldOption/${fieldId}`;
+      console.log('Trying alternative URL:', altUrl); // Debug log 4
+      
+      const altResponse = await axios({
+        method: 'GET',
+        url: altUrl,
+        auth: {
+          username: process.env.JIRA_EMAIL,
+          password: process.env.JIRA_API_TOKEN
+        },
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      
+      console.log('Alternative API Response:', JSON.stringify(altResponse.data, null, 2)); // Debug log 5
+      
+      if (!altResponse.data) {
+        throw new Error('No options found in both endpoints');
+      }
+      
+      return [{
+        text: {
+          type: 'plain_text',
+          text: altResponse.data.value
+        },
+        value: altResponse.data.id
+      }];
     }
     
-    return response.data.values.map(option => ({
+    const options = response.data.values || response.data.options || [];
+    console.log('Processed options:', options); // Debug log 6
+    
+    return options.map(option => ({
       text: {
         type: 'plain_text',
-        text: option.value
+        text: option.value || option.name
       },
       value: option.id
     }));
   } catch (error) {
-    console.error('Error fetching field options:', error);
-    console.error('Error details:', error.response?.data); // Log detailed error
+    console.error('Error fetching field options:', error.message); // Debug log 7
+    if (error.response) {
+      console.error('Error response:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      }); // Debug log 8
+    }
     throw new Error(`Failed to fetch options for field ${fieldId}: ${error.message}`);
   }
 };
