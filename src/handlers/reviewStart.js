@@ -250,21 +250,91 @@ const getFieldOptions = async (fieldId) => {
   }
 };
 
+const getTeamMemberOptions = async () => {
+  try {
+    // Create base64 encoded credentials
+    const credentials = Buffer.from(
+      `${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`
+    ).toString('base64');
+
+    // Get the field options directly from Jira
+    const response = await axios({
+      method: 'GET',
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/field/${process.env.JIRA_TEAM_MEMBER_FIELD}/option`,
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (response.data && response.data.values) {
+      return response.data.values.map(option => ({
+        text: { 
+          type: 'plain_text', 
+          text: option.value 
+        },
+        value: option.id
+      }));
+    }
+
+    // Fallback to default options if API fails
+    console.warn('No options returned from API, using defaults');
+    return [
+      {
+        text: { type: 'plain_text', text: 'Creative Dept' },
+        value: '10775'
+      },
+      {
+        text: { type: 'plain_text', text: 'Brian' },
+        value: '10776'
+      },
+      {
+        text: { type: 'plain_text', text: 'Josh' },
+        value: '10777'
+      },
+      {
+        text: { type: 'plain_text', text: 'Muthaher' },
+        value: '10778'
+      }
+    ];
+  } catch (error) {
+    console.error('Error getting team member options:', error);
+    // Return default options on error
+    return [
+      {
+        text: { type: 'plain_text', text: 'Creative Dept' },
+        value: '10775'
+      },
+      {
+        text: { type: 'plain_text', text: 'Brian' },
+        value: '10776'
+      },
+      {
+        text: { type: 'plain_text', text: 'Josh' },
+        value: '10777'
+      },
+      {
+        text: { type: 'plain_text', text: 'Muthaher' },
+        value: '10778'
+      }
+    ];
+  }
+};
+
 const reviewStart = async ({ command, ack, client }) => {
   await ack();
 
   try {
     // Fetch all options
-    const [verticalOptions, trafficSourceOptions, teamMemberOptions] = await Promise.all([
+    const [verticalOptions, trafficSourceOptions] = await Promise.all([
       getFieldOptions(process.env.JIRA_VERTICAL_FIELD),
-      getFieldOptions(process.env.JIRA_TRAFFIC_SOURCE_FIELD),
-      getFieldOptions(process.env.JIRA_TEAM_MEMBER_FIELD)
+      getFieldOptions(process.env.JIRA_TRAFFIC_SOURCE_FIELD)
     ]);
     
-    console.log('Fetched team member options:', teamMemberOptions);
-
-    // Ensure we have at least one option for each field
-    if (!teamMemberOptions || teamMemberOptions.length === 0) {
+    // Get team member options
+    const teamMemberOptions = await getTeamMemberOptions();
+    
+    if (!teamMemberOptions.length) {
       throw new Error('No team member options available');
     }
 
@@ -354,7 +424,7 @@ const reviewStart = async ({ command, ack, client }) => {
             block_id: 'team_member',
             element: {
               type: 'static_select',
-              action_id: 'team_member',
+              action_id: 'team_member_input',
               placeholder: {
                 type: 'plain_text',
                 text: 'Select team member'
