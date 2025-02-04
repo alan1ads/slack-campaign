@@ -167,7 +167,7 @@ const getFieldOptions = async (fieldId) => {
     const contextIds = {
       'customfield_10195': '10316', // Vertical
       'customfield_10194': '10315', // Traffic Source
-      'customfield_10190': '10314'  // Team Member - adding new mapping
+      'customfield_10190': '10314'  // Team Member
     };
     
     const contextId = contextIds[fieldId];
@@ -292,14 +292,16 @@ const reviewStart = async ({ command, ack, client }) => {
   await ack();
 
   try {
-    // Fetch both vertical and traffic source options from Jira
-    const [verticalOptions, trafficSourceOptions] = await Promise.all([
+    // Fetch vertical, traffic source, and team member options from Jira
+    const [verticalOptions, trafficSourceOptions, teamMemberOptions] = await Promise.all([
       getFieldOptions(process.env.JIRA_VERTICAL_FIELD),
-      getFieldOptions(process.env.JIRA_TRAFFIC_SOURCE_FIELD)
+      getFieldOptions(process.env.JIRA_TRAFFIC_SOURCE_FIELD),
+      getFieldOptions(process.env.JIRA_TEAM_MEMBER_FIELD)
     ]);
     
     console.log('Fetched vertical options:', verticalOptions);
     console.log('Fetched traffic source options:', trafficSourceOptions);
+    console.log('Fetched team member options:', teamMemberOptions);
 
     const result = await client.views.open({
       trigger_id: command.trigger_id,
@@ -387,21 +389,12 @@ const reviewStart = async ({ command, ack, client }) => {
             block_id: 'team_member',
             element: {
               type: 'static_select',
-              action_id: 'team_member_input',
+              action_id: 'team_member',
               placeholder: {
                 type: 'plain_text',
-                text: 'Select Team Member'
+                text: 'Select team member'
               },
-              options: [
-                {
-                  text: {
-                    type: 'plain_text',
-                    text: 'Creative Dept'
-                  },
-                  value: '10777'
-                }
-                // Add other team members here
-              ]
+              options: teamMemberOptions
             },
             label: {
               type: 'plain_text',
