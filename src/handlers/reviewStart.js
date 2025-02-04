@@ -166,35 +166,7 @@ const getFieldOptions = async (fieldId) => {
     // Map of field IDs to their context IDs
     const contextIds = {
       'customfield_10195': '10316', // Vertical
-      'customfield_10194': '10315', // Traffic Source
-      'customfield_10190': '10311'  // Team Member - Using the correct context ID
-    };
-    
-    // Default options to use if API call fails
-    const defaultOptions = {
-      'customfield_10190': [  // Team Member defaults
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Creative Dept'
-          },
-          value: '10777'
-        },
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Design Team'
-          },
-          value: '10778'
-        },
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Copy Team'
-          },
-          value: '10779'
-        }
-      ]
+      'customfield_10194': '10315'  // Traffic Source
     };
     
     const contextId = contextIds[fieldId];
@@ -202,7 +174,7 @@ const getFieldOptions = async (fieldId) => {
     
     if (!contextId) {
       console.warn(`No context ID found for field ${fieldId}`);
-      return defaultOptions[fieldId] || [];
+      return [];
     }
     
     const url = `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/${contextId}/option`;
@@ -231,22 +203,30 @@ const getFieldOptions = async (fieldId) => {
       }));
     }
     
-    // If no options returned from API, use defaults
-    console.warn(`No options found for field ${fieldId}, using defaults`);
-    return defaultOptions[fieldId] || [];
-
+    return [];
   } catch (error) {
     console.error(`Error fetching field options for ${fieldId}:`, error.message);
-    if (error.response) {
-      console.error('Error response:', {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        data: error.response.data
-      });
+    // Fallback options for verticals if API fails
+    if (fieldId === 'customfield_10195') {
+      return [
+        { text: { type: 'plain_text', text: 'ACA Spanish' }, value: '10582' },
+        { text: { type: 'plain_text', text: 'ACA' }, value: '10583' },
+        { text: { type: 'plain_text', text: 'Debt Relief' }, value: '10584' },
+        { text: { type: 'plain_text', text: 'Debt Spanish' }, value: '10585' },
+        { text: { type: 'plain_text', text: 'Medicare' }, value: '10586' },
+        { text: { type: 'plain_text', text: 'Medicare (Spanish)' }, value: '10587' },
+        { text: { type: 'plain_text', text: 'MVA' }, value: '10588' },
+        { text: { type: 'plain_text', text: 'Auto Insurance' }, value: '10589' },
+        { text: { type: 'plain_text', text: 'Final Expense' }, value: '10590' },
+        { text: { type: 'plain_text', text: 'Solar' }, value: '10591' },
+        { text: { type: 'plain_text', text: 'Loan' }, value: '10592' },
+        { text: { type: 'plain_text', text: 'Refinance' }, value: '10593' },
+        { text: { type: 'plain_text', text: 'Ecomm' }, value: '10594' },
+        { text: { type: 'plain_text', text: 'Web' }, value: '10615' },
+        { text: { type: 'plain_text', text: 'All' }, value: '10616' }
+      ];
     }
-    // Return default options on error
-    console.log(`Returning default options for ${fieldId}`);
-    return defaultOptions[fieldId] || [];
+    return [];
   }
 };
 
