@@ -167,16 +167,19 @@ const getFieldOptions = async (fieldId) => {
     const contextIds = {
       'customfield_10195': '10316', // Vertical
       'customfield_10194': '10315', // Traffic Source
-      'customfield_10190': '10314'  // Team Member
+      'customfield_10190': '10311'  // Team Member - Updated to correct context ID
     };
     
     const contextId = contextIds[fieldId];
+    console.log(`Field ${fieldId} mapped to context ${contextId}`);
+    
     if (!contextId) {
+      console.warn(`No context ID found for field ${fieldId}`);
       throw new Error(`No context ID found for field ${fieldId}`);
     }
     
     const url = `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/${contextId}/option`;
-    console.log('Request URL:', url);
+    console.log('Making request to URL:', url);
 
     const response = await axios({
       method: 'GET',
@@ -189,6 +192,7 @@ const getFieldOptions = async (fieldId) => {
       }
     });
     
+    console.log(`Response status for ${fieldId}:`, response.status);
     console.log(`Options for ${fieldId}:`, JSON.stringify(response.data, null, 2));
     
     if (response.data && response.data.values) {
@@ -202,50 +206,10 @@ const getFieldOptions = async (fieldId) => {
     }
     
     console.warn(`No options found for field ${fieldId}`);
-    
-    // Default options based on field ID
-    const defaultOptions = {
-      'customfield_10195': [ // Vertical
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Medicare'
-          },
-          value: '10586'
-        },
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Other'
-          },
-          value: '10587'
-        }
-      ],
-      'customfield_10194': [ // Traffic Source
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Default Traffic Source'
-          },
-          value: 'default'
-        }
-      ],
-      'customfield_10190': [ // Team Member
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Creative Dept'
-          },
-          value: '10777'
-        }
-        // Add more default team member options if needed
-      ]
-    };
-    
-    return defaultOptions[fieldId] || [];
+    return [];
 
   } catch (error) {
-    console.error('Error fetching field options:', error.message);
+    console.error(`Error fetching field options for ${fieldId}:`, error.message);
     if (error.response) {
       console.error('Error response:', {
         status: error.response.status,
@@ -253,37 +217,6 @@ const getFieldOptions = async (fieldId) => {
         data: error.response.data
       });
     }
-    
-    // Return field-specific default options on error
-    if (fieldId === 'customfield_10195') { // Vertical
-      return [
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Medicare'
-          },
-          value: '10586'
-        },
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Other'
-          },
-          value: '10587'
-        }
-      ];
-    } else if (fieldId === 'customfield_10194') { // Traffic Source
-      return [
-        {
-          text: {
-            type: 'plain_text',
-            text: 'Default Traffic Source'
-          },
-          value: 'default'
-        }
-      ];
-    }
-    
     return [];
   }
 };
