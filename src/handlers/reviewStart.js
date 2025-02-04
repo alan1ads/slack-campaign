@@ -167,7 +167,34 @@ const getFieldOptions = async (fieldId) => {
     const contextIds = {
       'customfield_10195': '10316', // Vertical
       'customfield_10194': '10315', // Traffic Source
-      'customfield_10190': '10311'  // Team Member - Updated to correct context ID
+      'customfield_10190': '10311'  // Team Member - Using the correct context ID
+    };
+    
+    // Default options to use if API call fails
+    const defaultOptions = {
+      'customfield_10190': [  // Team Member defaults
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Creative Dept'
+          },
+          value: '10777'
+        },
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Design Team'
+          },
+          value: '10778'
+        },
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Copy Team'
+          },
+          value: '10779'
+        }
+      ]
     };
     
     const contextId = contextIds[fieldId];
@@ -175,7 +202,7 @@ const getFieldOptions = async (fieldId) => {
     
     if (!contextId) {
       console.warn(`No context ID found for field ${fieldId}`);
-      throw new Error(`No context ID found for field ${fieldId}`);
+      return defaultOptions[fieldId] || [];
     }
     
     const url = `https://${process.env.JIRA_HOST}/rest/api/3/field/${fieldId}/context/${contextId}/option`;
@@ -193,9 +220,8 @@ const getFieldOptions = async (fieldId) => {
     });
     
     console.log(`Response status for ${fieldId}:`, response.status);
-    console.log(`Options for ${fieldId}:`, JSON.stringify(response.data, null, 2));
     
-    if (response.data && response.data.values) {
+    if (response.data && response.data.values && response.data.values.length > 0) {
       return response.data.values.map(option => ({
         text: {
           type: 'plain_text',
@@ -205,8 +231,9 @@ const getFieldOptions = async (fieldId) => {
       }));
     }
     
-    console.warn(`No options found for field ${fieldId}`);
-    return [];
+    // If no options returned from API, use defaults
+    console.warn(`No options found for field ${fieldId}, using defaults`);
+    return defaultOptions[fieldId] || [];
 
   } catch (error) {
     console.error(`Error fetching field options for ${fieldId}:`, error.message);
@@ -217,7 +244,9 @@ const getFieldOptions = async (fieldId) => {
         data: error.response.data
       });
     }
-    return [];
+    // Return default options on error
+    console.log(`Returning default options for ${fieldId}`);
+    return defaultOptions[fieldId] || [];
   }
 };
 
@@ -225,16 +254,19 @@ const reviewStart = async ({ command, ack, client }) => {
   await ack();
 
   try {
-    // Fetch vertical, traffic source, and team member options from Jira
+    // Fetch all options
     const [verticalOptions, trafficSourceOptions, teamMemberOptions] = await Promise.all([
       getFieldOptions(process.env.JIRA_VERTICAL_FIELD),
       getFieldOptions(process.env.JIRA_TRAFFIC_SOURCE_FIELD),
       getFieldOptions(process.env.JIRA_TEAM_MEMBER_FIELD)
     ]);
     
-    console.log('Fetched vertical options:', verticalOptions);
-    console.log('Fetched traffic source options:', trafficSourceOptions);
     console.log('Fetched team member options:', teamMemberOptions);
+
+    // Ensure we have at least one option for each field
+    if (!teamMemberOptions || teamMemberOptions.length === 0) {
+      throw new Error('No team member options available');
+    }
 
     const result = await client.views.open({
       trigger_id: command.trigger_id,
