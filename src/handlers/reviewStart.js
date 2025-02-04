@@ -166,7 +166,8 @@ const getFieldOptions = async (fieldId) => {
     // Map of field IDs to their context IDs
     const contextIds = {
       'customfield_10195': '10316', // Vertical
-      'customfield_10194': '10315'  // Traffic Source
+      'customfield_10194': '10315', // Traffic Source
+      'customfield_10190': '10314'  // Team Member - adding new mapping
     };
     
     const contextId = contextIds[fieldId];
@@ -228,6 +229,16 @@ const getFieldOptions = async (fieldId) => {
           },
           value: 'default'
         }
+      ],
+      'customfield_10190': [ // Team Member
+        {
+          text: {
+            type: 'plain_text',
+            text: 'Creative Dept'
+          },
+          value: '10777'
+        }
+        // Add more default team member options if needed
       ]
     };
     
