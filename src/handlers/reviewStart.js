@@ -375,7 +375,9 @@ const reviewStart = async ({ command, ack, client }) => {
                 type: 'plain_text',
                 text: 'Select Vertical'
               },
-              options: verticalOptions
+              options: verticalOptions.length > 0 ? verticalOptions : [
+                { text: { type: 'plain_text', text: 'Medicare' }, value: '10586' }
+              ]
             },
             label: {
               type: 'plain_text',
