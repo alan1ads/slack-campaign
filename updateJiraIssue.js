@@ -149,6 +149,39 @@ const handleJiraUpdateSubmission = async ({ body, client, ack }) => {
   }
 };
 
+// Add this function definition
+const updateJiraIssue = async ({ command, ack, client }) => {
+  await ack();
+  
+  try {
+    const credentials = Buffer.from(
+      `${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`
+    ).toString('base64');
+
+    const issueKey = command.text.trim();
+    if (!issueKey) {
+      await client.chat.postMessage({
+        channel: command.channel_id,
+        text: 'Please provide a Jira issue key'
+      });
+      return;
+    }
+
+    const modal = await generateJiraUpdateModal(issueKey, credentials);
+    
+    await client.views.open({
+      trigger_id: command.trigger_id,
+      view: modal
+    });
+  } catch (error) {
+    console.error('Error opening modal:', error);
+    await client.chat.postMessage({
+      channel: command.channel_id,
+      text: `Error: ${error.message}`
+    });
+  }
+};
+
 module.exports = {
   updateJiraIssue,
   handleJiraUpdateSubmission
