@@ -94,6 +94,24 @@ app.view('review_submission', async ({ ack, body, view, client }) => {
             id: values.team.team_input.selected_option.value
           }
         }),
+        ...(values.department?.department_input?.selected_option?.value && {
+          [process.env.JIRA_DEPARTMENT_FIELD]: {
+            id: values.department.department_input.selected_option.value
+          }
+        }),
+        ...(values.manager?.manager_input?.selected_option?.value && {
+          [process.env.JIRA_MANAGER_FIELD]: {
+            accountId: values.manager.manager_input.selected_option.value
+          }
+        }),
+        ...(values.buddy?.buddy_input?.selected_option?.value && {
+          [process.env.JIRA_BUDDY_FIELD]: {
+            accountId: values.buddy.buddy_input.selected_option.value
+          }
+        }),
+        ...(values.start_date?.start_date_input?.selected_date && {
+          [process.env.JIRA_START_DATE_FIELD]: values.start_date.start_date_input.selected_date
+        }),
         ...(values.environment?.environment_input?.value && {
           [process.env.JIRA_ENVIRONMENT_FIELD]: values.environment.environment_input.value
         }),
@@ -117,25 +135,14 @@ app.view('review_submission', async ({ ack, body, view, client }) => {
   }
 });
 
-// Enhanced metrics pull command
+// Update metrics pull command to include all fields
 app.command('/metrics-pull', async ({ command, ack, say }) => {
   await ack();
   const campaignId = command.text;
 
   try {
     if (!campaignId) {
-      await say({
-        text: 'Please provide a campaign ID',
-        blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: 'Please provide a campaign ID: `/metrics-pull [campaign-id]`'
-            }
-          }
-        ]
-      });
+      await say('Please provide a campaign ID: `/metrics-pull [campaign-id]`');
       return;
     }
 
@@ -165,6 +172,11 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
               `• Story Points: ${metrics.storyPoints || 'Not Set'}`,
               `• Sprint: ${metrics.sprint || 'Not Set'}`,
               `• Team: ${metrics.team || 'Not Set'}`,
+              `• Department: ${metrics.department?.value || 'Not Set'}`,
+              `• Manager: ${metrics.manager?.displayName || 'Not Set'}`,
+              `• Buddy: ${metrics.buddy?.displayName || 'Not Set'}`,
+              `• Start Date: ${metrics.startDate || 'Not Set'}`,
+              `• Environment: ${metrics.environment || 'Not Set'}`,
               `• Last Updated: ${new Date(metrics.updated).toLocaleString()}`
             ].join('\n')
           }
@@ -173,18 +185,7 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
     });
   } catch (error) {
     console.error('Error pulling metrics:', error);
-    await say({
-      text: 'Error retrieving metrics',
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `Error retrieving metrics: ${error.message}. Please try again.`
-          }
-        }
-      ]
-    });
+    await say(`Error retrieving metrics: ${error.message}. Please try again.`);
   }
 });
 

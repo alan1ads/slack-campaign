@@ -4,6 +4,12 @@ require('dotenv').config();
 // Helper function to fetch field options dynamically
 async function fetchFieldOptions(field, credentials) {
   try {
+    // Skip if field is not provided or empty
+    if (!field) {
+      console.log('Field ID not provided');
+      return [];
+    }
+
     // Get field context
     const contextResponse = await axios({
       method: 'GET',
@@ -12,6 +18,9 @@ async function fetchFieldOptions(field, credentials) {
         'Authorization': `Basic ${credentials}`,
         'Accept': 'application/json'
       }
+    }).catch(error => {
+      console.log(`Field ${field} not found or not accessible`);
+      return { data: { values: [] } };
     });
 
     const contextId = contextResponse.data.values[0]?.id;
@@ -29,12 +38,15 @@ async function fetchFieldOptions(field, credentials) {
         'Authorization': `Basic ${credentials}`,
         'Accept': 'application/json'
       }
+    }).catch(error => {
+      console.log(`No options found for field ${field}`);
+      return { data: { values: [] } };
     });
 
     return optionsResponse.data.values.map(option => ({
       text: {
         type: 'plain_text',
-        text: option.value
+        text: option.value || 'Unnamed Option'
       },
       value: option.id
     }));
@@ -98,21 +110,178 @@ async function fetchComponentOptions(credentials) {
   }
 }
 
-// Mapping of custom fields to human-readable names
-const CUSTOM_FIELD_NAMES = {
-  // ... previous mapping ...
-};
+// Helper function to safely get field name
+function getFieldName(fieldId) {
+  const customFieldNames = {
+    [process.env.JIRA_TEAM_MEMBER_FIELD]: 'Team Member',
+    [process.env.JIRA_AD_ACCOUNT_FIELD]: 'Ad Account',
+    [process.env.JIRA_VERTICAL_FIELD]: 'Vertical',
+    [process.env.JIRA_TRAFFIC_SOURCE_FIELD]: 'Traffic Source',
+    [process.env.JIRA_CREATIVE_LINK_FIELD]: 'Creative Link',
+    [process.env.JIRA_ROI_FIELD]: 'ROI',
+    [process.env.JIRA_CPI_FIELD]: 'CPI',
+    [process.env.JIRA_SPEND_FIELD]: 'Total Spend',
+    [process.env.JIRA_CONVERSIONS_FIELD]: 'Conversions',
+    [process.env.JIRA_STORY_POINTS_FIELD]: 'Story Points',
+    [process.env.JIRA_SPRINT_FIELD]: 'Sprint',
+    [process.env.JIRA_EPIC_LINK_FIELD]: 'Epic Link',
+    [process.env.JIRA_FLAGGED_FIELD]: 'Flagged',
+    [process.env.JIRA_TEAM_FIELD]: 'Team',
+    [process.env.JIRA_DEPARTMENT_FIELD]: 'Department',
+    [process.env.JIRA_MANAGER_FIELD]: 'Manager',
+    [process.env.JIRA_BUDDY_FIELD]: 'Buddy',
+    [process.env.JIRA_START_DATE_FIELD]: 'Start Date',
+    [process.env.JIRA_ENVIRONMENT_FIELD]: 'Environment',
+    [process.env.JIRA_LABELS_FIELD]: 'Labels',
+    [process.env.JIRA_COMPONENTS_FIELD]: 'Components',
+    [process.env.JIRA_PRIORITY_FIELD]: 'Priority',
+    [process.env.JIRA_STATUS_FIELD]: 'Status',
+    [process.env.JIRA_ASSIGNEE_FIELD]: 'Assignee',
+    [process.env.JIRA_DUE_DATE_FIELD]: 'Due Date',
+    [process.env.JIRA_TIME_ESTIMATE_FIELD]: 'Time Estimate',
+    [process.env.JIRA_TIME_SPENT_FIELD]: 'Time Spent'
+  };
 
-// Fields that require option selection
+  return customFieldNames[fieldId] || fieldId || 'Unknown Field';
+}
+
+// Update OPTION_FIELDS array to include all select/user fields
 const OPTION_FIELDS = [
   process.env.JIRA_VERTICAL_FIELD,
   process.env.JIRA_TRAFFIC_SOURCE_FIELD,
   process.env.JIRA_TEAM_MEMBER_FIELD,
-  process.env.JIRA_STATUS_FIELD
+  process.env.JIRA_STATUS_FIELD,
+  process.env.JIRA_SPRINT_FIELD,
+  process.env.JIRA_EPIC_LINK_FIELD,
+  process.env.JIRA_TEAM_FIELD,
+  process.env.JIRA_DEPARTMENT_FIELD,
+  process.env.JIRA_MANAGER_FIELD,
+  process.env.JIRA_BUDDY_FIELD
+];
+
+// Update FIELD_TYPES with all fields
+const FIELD_TYPES = {
+  // Existing fields
+  [process.env.JIRA_TEAM_MEMBER_FIELD]: 'option',
+  [process.env.JIRA_AD_ACCOUNT_FIELD]: 'string',
+  [process.env.JIRA_VERTICAL_FIELD]: 'option',
+  [process.env.JIRA_TRAFFIC_SOURCE_FIELD]: 'option',
+  [process.env.JIRA_CREATIVE_LINK_FIELD]: 'string',
+  [process.env.JIRA_ROI_FIELD]: 'number',
+  [process.env.JIRA_CPI_FIELD]: 'number',
+  [process.env.JIRA_SPEND_FIELD]: 'number',
+  [process.env.JIRA_CONVERSIONS_FIELD]: 'number',
+  
+  // System fields
+  [process.env.JIRA_STATUS_FIELD]: 'status',
+  [process.env.JIRA_PRIORITY_FIELD]: 'priority',
+  [process.env.JIRA_ASSIGNEE_FIELD]: 'user',
+  [process.env.JIRA_REPORTER_FIELD]: 'user',
+  [process.env.JIRA_CREATED_FIELD]: 'datetime',
+  [process.env.JIRA_UPDATED_FIELD]: 'datetime',
+  [process.env.JIRA_DUE_DATE_FIELD]: 'date',
+  [process.env.JIRA_COMPONENTS_FIELD]: 'array',
+  [process.env.JIRA_LABELS_FIELD]: 'array',
+  [process.env.JIRA_TIME_ESTIMATE_FIELD]: 'number',
+  [process.env.JIRA_TIME_SPENT_FIELD]: 'number',
+  [process.env.JIRA_VERSIONS_FIELD]: 'array',
+  [process.env.JIRA_ISSUE_LINKS_FIELD]: 'array',
+  [process.env.JIRA_ENVIRONMENT_FIELD]: 'string',
+  [process.env.JIRA_ATTACHMENT_FIELD]: 'array',
+  [process.env.JIRA_WORKLOG_FIELD]: 'array',
+  [process.env.JIRA_COMMENT_FIELD]: 'comments-page',
+  
+  // New custom fields
+  [process.env.JIRA_STORY_POINTS_FIELD]: 'number',
+  [process.env.JIRA_SPRINT_FIELD]: 'sprint',
+  [process.env.JIRA_EPIC_LINK_FIELD]: 'epic',
+  [process.env.JIRA_FLAGGED_FIELD]: 'boolean',
+  [process.env.JIRA_TEAM_FIELD]: 'team',
+  [process.env.JIRA_DEPARTMENT_FIELD]: 'select',
+  [process.env.JIRA_MANAGER_FIELD]: 'user',
+  [process.env.JIRA_BUDDY_FIELD]: 'user',
+  [process.env.JIRA_START_DATE_FIELD]: 'date',
+  [process.env.JIRA_LABELS_FIELD]: 'text',
+  [process.env.JIRA_COMPONENTS_FIELD]: 'select',
+  [process.env.JIRA_PRIORITY_FIELD]: 'select',
+  [process.env.JIRA_STATUS_FIELD]: 'select',
+  [process.env.JIRA_ASSIGNEE_FIELD]: 'user',
+  [process.env.JIRA_DUE_DATE_FIELD]: 'date',
+  [process.env.JIRA_TIME_ESTIMATE_FIELD]: 'number',
+  [process.env.JIRA_TIME_SPENT_FIELD]: 'number'
+};
+
+// Update inputFieldConfigs with new fields
+const inputFieldConfigs = [
+  {
+    blockId: 'summary',
+    label: 'Summary',
+    type: 'plain_text'
+  },
+  {
+    blockId: 'description',
+    label: 'Description',
+    type: 'multiline'
+  },
+  {
+    blockId: 'ad_account',
+    label: 'Ad Account',
+    type: 'plain_text'
+  },
+  {
+    blockId: 'creative_link',
+    label: 'Creative Link',
+    type: 'plain_text'
+  },
+  {
+    blockId: 'roi',
+    label: 'ROI',
+    type: 'number'
+  },
+  {
+    blockId: 'cpi',
+    label: 'CPI',
+    type: 'number'
+  },
+  {
+    blockId: 'total_spend',
+    label: 'Total Spend',
+    type: 'number'
+  },
+  {
+    blockId: 'conversions',
+    label: 'Conversions',
+    type: 'number'
+  },
+  {
+    blockId: 'story_points',
+    label: 'Story Points',
+    type: 'number'
+  },
+  {
+    blockId: 'environment',
+    label: 'Environment',
+    type: 'multiline'
+  },
+  {
+    blockId: 'time_estimate',
+    label: 'Time Estimate (hours)',
+    type: 'number'
+  },
+  {
+    blockId: 'time_spent',
+    label: 'Time Spent (hours)',
+    type: 'number'
+  },
+  {
+    blockId: 'labels',
+    label: 'Labels (comma-separated)',
+    type: 'plain_text'
+  }
 ];
 
 // Generate Jira update modal
-async function generateJiraUpdateModal(triggerId, issueKey) {
+async function generateJiraUpdateModal(issueKey, credentials) {
   try {
     // Prepare credentials
     const credentials = Buffer.from(
@@ -124,11 +293,6 @@ async function generateJiraUpdateModal(triggerId, issueKey) {
 
     // Add issue key as hidden metadata
     const privateMetadata = JSON.stringify({ issueKey });
-
-    // Define input field configurations
-    const inputFieldConfigs = [
-      // ... previous input field configs ...
-    ];
 
     // Wrapper function to fetch options safely
     const fetchOptionsWithFallback = async (fetchFunc) => {
@@ -183,13 +347,13 @@ async function generateJiraUpdateModal(triggerId, issueKey) {
       if (options.length > 0) {
         return {
           type: 'input',
-          block_id: CUSTOM_FIELD_NAMES[field].toLowerCase().replace(/\s+/g, '_'),
+          block_id: getFieldName(field).toLowerCase().replace(/\s+/g, '_'),
           element: {
             type: 'static_select',
-            action_id: `${CUSTOM_FIELD_NAMES[field].toLowerCase().replace(/\s+/g, '_')}_input`,
+            action_id: `${getFieldName(field).toLowerCase().replace(/\s+/g, '_')}_input`,
             placeholder: {
               type: 'plain_text',
-              text: `Select ${CUSTOM_FIELD_NAMES[field]}`
+              text: `Select ${getFieldName(field)}`
             },
             options: options.length > 0 ? options : [
               {
@@ -200,7 +364,7 @@ async function generateJiraUpdateModal(triggerId, issueKey) {
           },
           label: {
             type: 'plain_text',
-            text: CUSTOM_FIELD_NAMES[field]
+            text: getFieldName(field)
           },
           optional: true
         };

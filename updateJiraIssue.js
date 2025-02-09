@@ -36,7 +36,52 @@ const BLOCK_TO_FIELD_MAPPING = {
   'epic_link': process.env.JIRA_EPIC_LINK_FIELD,
   'flagged': process.env.JIRA_FLAGGED_FIELD,
   'team': process.env.JIRA_TEAM_FIELD,
-  'start_date': process.env.JIRA_START_DATE_FIELD
+  'start_date': process.env.JIRA_START_DATE_FIELD,
+  
+  // Additional custom fields
+  'department': process.env.JIRA_DEPARTMENT_FIELD,
+  'manager': process.env.JIRA_MANAGER_FIELD,
+  'buddy': process.env.JIRA_BUDDY_FIELD
+};
+
+// Add FIELD_TYPES constant at the top level
+const FIELD_TYPES = {
+  // Existing fields
+  [process.env.JIRA_TEAM_MEMBER_FIELD]: 'option',
+  [process.env.JIRA_AD_ACCOUNT_FIELD]: 'string',
+  [process.env.JIRA_VERTICAL_FIELD]: 'option',
+  [process.env.JIRA_TRAFFIC_SOURCE_FIELD]: 'option',
+  [process.env.JIRA_CREATIVE_LINK_FIELD]: 'string',
+  [process.env.JIRA_ROI_FIELD]: 'number',
+  [process.env.JIRA_CPI_FIELD]: 'number',
+  [process.env.JIRA_SPEND_FIELD]: 'number',
+  [process.env.JIRA_CONVERSIONS_FIELD]: 'number',
+  
+  // System fields
+  [process.env.JIRA_STATUS_FIELD]: 'status',
+  [process.env.JIRA_PRIORITY_FIELD]: 'priority',
+  [process.env.JIRA_ASSIGNEE_FIELD]: 'user',
+  [process.env.JIRA_REPORTER_FIELD]: 'user',
+  [process.env.JIRA_DESCRIPTION_FIELD]: 'string',
+  [process.env.JIRA_SUMMARY_FIELD]: 'string',
+  [process.env.JIRA_DUE_DATE_FIELD]: 'date',
+  [process.env.JIRA_COMPONENTS_FIELD]: 'array',
+  [process.env.JIRA_LABELS_FIELD]: 'array',
+  [process.env.JIRA_TIME_ESTIMATE_FIELD]: 'number',
+  [process.env.JIRA_TIME_SPENT_FIELD]: 'number',
+  [process.env.JIRA_VERSIONS_FIELD]: 'array',
+  [process.env.JIRA_ENVIRONMENT_FIELD]: 'string',
+  
+  // New custom fields
+  [process.env.JIRA_STORY_POINTS_FIELD]: 'number',
+  [process.env.JIRA_SPRINT_FIELD]: 'sprint',
+  [process.env.JIRA_EPIC_LINK_FIELD]: 'epic',
+  [process.env.JIRA_FLAGGED_FIELD]: 'boolean',
+  [process.env.JIRA_TEAM_FIELD]: 'team',
+  [process.env.JIRA_START_DATE_FIELD]: 'date',
+  [process.env.JIRA_DEPARTMENT_FIELD]: 'option',
+  [process.env.JIRA_MANAGER_FIELD]: 'user',
+  [process.env.JIRA_BUDDY_FIELD]: 'user'
 };
 
 // Enhanced formatFieldValue function
