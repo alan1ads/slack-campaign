@@ -2,8 +2,9 @@ const axios = require('axios');
 const { generateJiraUpdateModal } = require('./jiraUpdateModal');
 require('dotenv').config();
 
-// Mapping of block IDs to Jira custom fields
+// Updated mapping of block IDs to Jira fields
 const BLOCK_TO_FIELD_MAPPING = {
+  // Existing fields
   'ad_account': process.env.JIRA_AD_ACCOUNT_FIELD,
   'vertical': process.env.JIRA_VERTICAL_FIELD,
   'traffic_source': process.env.JIRA_TRAFFIC_SOURCE_FIELD,
@@ -13,108 +14,118 @@ const BLOCK_TO_FIELD_MAPPING = {
   'cpi': process.env.JIRA_CPI_FIELD,
   'total_spend': process.env.JIRA_SPEND_FIELD,
   'conversions': process.env.JIRA_CONVERSIONS_FIELD,
+  
+  // System fields
   'status': process.env.JIRA_STATUS_FIELD,
-  'start_date': process.env.JIRA_START_DATE_FIELD,
-  'due_date': process.env.JIRA_DUE_DATE_FIELD,
+  'priority': process.env.JIRA_PRIORITY_FIELD,
+  'assignee': process.env.JIRA_ASSIGNEE_FIELD,
+  'reporter': process.env.JIRA_REPORTER_FIELD,
   'description': process.env.JIRA_DESCRIPTION_FIELD,
   'summary': process.env.JIRA_SUMMARY_FIELD,
-  'priority': process.env.JIRA_PRIORITY_FIELD,
-  'status_category_changed_date': process.env.JIRA_STATUS_CATEGORY_DATE_FIELD,
-  'last_viewed': process.env.JIRA_LAST_VIEWED_FIELD,
-  'assignee': process.env.JIRA_ASSIGNEE_FIELD,
+  'due_date': process.env.JIRA_DUE_DATE_FIELD,
   'components': process.env.JIRA_COMPONENTS_FIELD,
   'labels': process.env.JIRA_LABELS_FIELD,
   'time_estimate': process.env.JIRA_TIME_ESTIMATE_FIELD,
+  'time_spent': process.env.JIRA_TIME_SPENT_FIELD,
   'versions': process.env.JIRA_VERSIONS_FIELD,
+  'environment': process.env.JIRA_ENVIRONMENT_FIELD,
   
+  // New custom fields
+  'story_points': process.env.JIRA_STORY_POINTS_FIELD,
+  'sprint': process.env.JIRA_SPRINT_FIELD,
+  'epic_link': process.env.JIRA_EPIC_LINK_FIELD,
+  'flagged': process.env.JIRA_FLAGGED_FIELD,
+  'team': process.env.JIRA_TEAM_FIELD,
+  'start_date': process.env.JIRA_START_DATE_FIELD
 };
 
-// Jira issue update handler
-const updateJiraIssue = async ({ command, ack, client }) => {
-  await ack();
-
-  // Parse the command input
-  const [issueKey] = command.text.split(' ');
-
-  if (!issueKey) {
-    await client.chat.postMessage({
-      channel: command.channel_id,
-      text: 'Please provide an issue key. Usage: `/jira-update ISSUE-KEY`'
-    });
-    return;
+// Enhanced formatFieldValue function
+function formatFieldValue(value, fieldType) {
+  switch (fieldType) {
+    case 'option':
+      return { id: value };
+    case 'number':
+      return parseFloat(value);
+    case 'date':
+    case 'datetime':
+      return value;
+    case 'array':
+      if (typeof value === 'string') {
+        return value.split(',').map(item => item.trim());
+      }
+      return Array.isArray(value) ? value : [value];
+    case 'user':
+      return { accountId: value };
+    case 'status':
+      return { id: value };
+    case 'priority':
+      return { id: value };
+    case 'sprint':
+      return parseInt(value);
+    case 'epic':
+      return value;
+    case 'boolean':
+      return value === 'true';
+    case 'team':
+      return { id: value };
+    case 'string':
+      return value;
+    default:
+      return value;
   }
+}
 
-  try {
-    // Generate and open update modal
-    const modal = await generateJiraUpdateModal(command.trigger_id, issueKey);
-    
-    await client.views.open({
-      trigger_id: command.trigger_id,
-      view: modal
-    });
-  } catch (error) {
-    console.error('Error opening update modal:', error);
-    await client.chat.postMessage({
-      channel: command.channel_id,
-      text: `Error opening update modal: ${error.message}`
-    });
-  }
-};
-
-// Handle modal submission
+// Enhanced handleJiraUpdateSubmission
 const handleJiraUpdateSubmission = async ({ body, client, ack }) => {
   await ack();
 
   try {
-    // Extract issue key from private metadata
     const { issueKey } = JSON.parse(body.view.private_metadata);
     const values = body.view.state.values;
-
-    // Prepare credentials
     const credentials = Buffer.from(
       `${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`
     ).toString('base64');
 
-    // Prepare field updates
     const fieldUpdates = {};
 
-    // Process each block
     for (const [blockId, blockValue] of Object.entries(values)) {
-      // Get the input action ID
       const actionId = Object.keys(blockValue)[0];
-      const value = blockValue[actionId].value || blockValue[actionId].selected_option?.value;
+      let value = blockValue[actionId].value;
 
-      // Skip empty values
-      if (!value) continue;
+      // Handle different input types
+      if (blockValue[actionId].selected_option) {
+        value = blockValue[actionId].selected_option.value;
+      } else if (blockValue[actionId].selected_options) {
+        value = blockValue[actionId].selected_options.map(opt => opt.value);
+      } else if (blockValue[actionId].selected_date) {
+        value = blockValue[actionId].selected_date;
+      }
 
-      // Map block ID to Jira field
-      const jiraField = BLOCK_TO_FIELD_MAPPING[blockId] || 
-        (blockId === 'priority' ? 'priority' : 
-         blockId === 'due_date' ? 'duedate' : null);
+      if (value === undefined || value === null) continue;
 
+      const jiraField = BLOCK_TO_FIELD_MAPPING[blockId];
       if (!jiraField) continue;
 
-      // Special handling for different field types
-      if (['vertical', 'traffic_source', 'team_member', 'status'].includes(blockId)) {
-        // Option-based fields require { id: fieldId }
-        fieldUpdates[jiraField] = { id: value };
-      } else if (['roi', 'cpi', 'total_spend', 'conversions'].includes(blockId)) {
-        // Numeric fields
-        fieldUpdates[jiraField] = parseFloat(value);
-      } else if (blockId === 'priority') {
-        // Priority field
-        fieldUpdates[jiraField] = { id: value };
-      } else if (blockId === 'due_date') {
-        // Date field
-        fieldUpdates[jiraField] = value;
-      } else {
-        // Text fields
-        fieldUpdates[jiraField] = value;
-      }
+      const fieldType = FIELD_TYPES[jiraField];
+      fieldUpdates[jiraField] = formatFieldValue(value, fieldType);
     }
 
-    // Perform the update
-    const updateResponse = await axios({
+    // Special handling for description field (Jira's Atlassian Document Format)
+    if (fieldUpdates[process.env.JIRA_DESCRIPTION_FIELD]) {
+      fieldUpdates[process.env.JIRA_DESCRIPTION_FIELD] = {
+        type: 'doc',
+        version: 1,
+        content: [{
+          type: 'paragraph',
+          content: [{
+            type: 'text',
+            text: fieldUpdates[process.env.JIRA_DESCRIPTION_FIELD]
+          }]
+        }]
+      };
+    }
+
+    await axios({
       method: 'PUT',
       url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}`,
       headers: {
@@ -124,7 +135,6 @@ const handleJiraUpdateSubmission = async ({ body, client, ack }) => {
       data: { fields: fieldUpdates }
     });
 
-    // Send success message
     await client.chat.postMessage({
       channel: body.user.id,
       text: `Successfully updated issue ${issueKey} 🎉`
@@ -132,8 +142,6 @@ const handleJiraUpdateSubmission = async ({ body, client, ack }) => {
 
   } catch (error) {
     console.error('Error updating Jira issue:', error);
-    
-    // Send error message
     await client.chat.postMessage({
       channel: body.user.id,
       text: `Error updating issue: ${error.response?.data?.errorMessages?.join(', ') || error.message}`

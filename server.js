@@ -25,13 +25,8 @@ const app = new App({
 
 const { updateJiraIssue, handleJiraUpdateSubmission } = require('./updateJiraIssue');
 
-// Add this to your existing command handlers
+// Command handlers
 app.command('/jira-update', updateJiraIssue);
-
-// Add this to your view submissions
-app.view('jira_update_submission', handleJiraUpdateSubmission);
-
-// Add command handlers
 app.command('/check-status', checkStatus);
 app.command('/search-issues', searchIssues);
 app.command('/find-fields', findJiraFields);
@@ -40,20 +35,21 @@ app.command('/status-update', updateStatus);
 app.command('/campaign-status-update', updateCampaignStatus);
 app.command('/review-start', reviewStart);
 
-// Handle the modal submission
+// View submissions
+app.view('jira_update_submission', handleJiraUpdateSubmission);
+
+// Handle the review submission with updated fields
 app.view('review_submission', async ({ ack, body, view, client }) => {
   await ack();
   
   try {
     const values = view.state.values;
-    
-    // Get the channel ID from the private_metadata
     const channelId = JSON.parse(view.private_metadata).channel_id;
     
     const newIssue = await jira.addNewIssue({
       fields: {
         project: {
-          key: 'AS'
+          key: process.env.JIRA_PROJECT_KEY
         },
         summary: values.campaign_name.campaign_name_input.value,
         description: {
@@ -71,6 +67,7 @@ app.view('review_submission', async ({ ack, body, view, client }) => {
             }
           ]
         },
+        // Existing fields
         [process.env.JIRA_AD_ACCOUNT_FIELD]: values.ad_account.ad_account_input.value,
         [process.env.JIRA_VERTICAL_FIELD]: {
           id: values.vertical.vertical_input.selected_option.value
@@ -81,44 +78,46 @@ app.view('review_submission', async ({ ack, body, view, client }) => {
         [process.env.JIRA_TEAM_MEMBER_FIELD]: {
           id: values.team_member.team_member_input.selected_option.value
         },
-        [process.env.JIRA_CREATIVE_LINK_FIELD]: {
-          type: 'doc',
-          version: 1,
-          content: [
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: values.creative_link.creative_link_input.value || ''
-                }
-              ]
-            }
-          ]
-        },
-        issuetype: {
-          name: 'Task'
-        }
+        
+        // New fields (if provided in the form)
+        ...(values.story_points?.story_points_input?.value && {
+          [process.env.JIRA_STORY_POINTS_FIELD]: parseFloat(values.story_points.story_points_input.value)
+        }),
+        ...(values.sprint?.sprint_input?.selected_option?.value && {
+          [process.env.JIRA_SPRINT_FIELD]: parseInt(values.sprint.sprint_input.selected_option.value)
+        }),
+        ...(values.epic_link?.epic_link_input?.selected_option?.value && {
+          [process.env.JIRA_EPIC_LINK_FIELD]: values.epic_link.epic_link_input.selected_option.value
+        }),
+        ...(values.team?.team_input?.selected_option?.value && {
+          [process.env.JIRA_TEAM_FIELD]: {
+            id: values.team.team_input.selected_option.value
+          }
+        }),
+        ...(values.environment?.environment_input?.value && {
+          [process.env.JIRA_ENVIRONMENT_FIELD]: values.environment.environment_input.value
+        }),
+        ...(values.labels?.labels_input?.value && {
+          [process.env.JIRA_LABELS_FIELD]: values.labels.labels_input.value.split(',').map(label => label.trim())
+        })
       }
     });
 
-    // Send success message to the original channel
     await client.chat.postMessage({
       channel: channelId,
-      text: `Successfully created issue ${newIssue.key}! 🎉\nView it here: https://${process.env.JIRA_HOST}/browse/${newIssue.key}`
+      text: `Created new issue: ${newIssue.key} 🎉\nView it here: https://${process.env.JIRA_HOST}/browse/${newIssue.key}`
     });
 
   } catch (error) {
-    console.error('Error creating Jira issue:', error);
-    // Send error message to the original channel
+    console.error('Error creating issue:', error);
     await client.chat.postMessage({
       channel: channelId,
-      text: `Error creating issue: ${error.message}`
+      text: `Error creating issue: ${error.response?.data?.errorMessages?.join(', ') || error.message}`
     });
   }
 });
 
-// Handle /metrics-pull command
+// Enhanced metrics pull command
 app.command('/metrics-pull', async ({ command, ack, say }) => {
   await ack();
   const campaignId = command.text;
@@ -140,7 +139,6 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
       return;
     }
 
-    // Get metrics from Jira
     const metrics = await getJiraMetrics(campaignId);
 
     await say({
@@ -157,7 +155,18 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `• ROI %: ${metrics.roi}\n• CPI: ${metrics.cpi}\n• Total Spend: ${metrics.spend}\n• Conversions: ${metrics.conversions}\n• Campaign Status: \`${metrics.campaignStatus}\`\n• Status: \`${metrics.status?.value || 'Not Set'}\`\n• Last Updated: ${new Date(metrics.updated).toLocaleString()}`
+            text: [
+              `• ROI %: ${metrics.roi}`,
+              `• CPI: ${metrics.cpi}`,
+              `• Total Spend: ${metrics.spend}`,
+              `• Conversions: ${metrics.conversions}`,
+              `• Campaign Status: \`${metrics.campaignStatus}\``,
+              `• Status: \`${metrics.status?.value || 'Not Set'}\``,
+              `• Story Points: ${metrics.storyPoints || 'Not Set'}`,
+              `• Sprint: ${metrics.sprint || 'Not Set'}`,
+              `• Team: ${metrics.team || 'Not Set'}`,
+              `• Last Updated: ${new Date(metrics.updated).toLocaleString()}`
+            ].join('\n')
           }
         }
       ]
