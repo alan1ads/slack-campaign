@@ -23,6 +23,14 @@ const app = new App({
   appToken: process.env.SLACK_APP_TOKEN
 });
 
+const { updateJiraIssue, handleJiraUpdateSubmission } = require('./updateJiraIssue');
+
+// Add this to your existing command handlers
+app.command('/jira-update', updateJiraIssue);
+
+// Add this to your view submissions
+app.view('jira_update_submission', handleJiraUpdateSubmission);
+
 // Add command handlers
 app.command('/check-status', checkStatus);
 app.command('/search-issues', searchIssues);
