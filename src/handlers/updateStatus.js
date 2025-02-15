@@ -49,46 +49,42 @@ const sendSlackNotification = async (app, issueKey, oldStatus, newStatus, update
 // Webhook handler for Jira status updates
 const handleJiraWebhook = async (req, res, app) => {
   try {
-    console.log('🔍 Received webhook from Jira:', {
-      event: req.body.webhookEvent,
-      issueKey: req.body.issue?.key,
-      query: req.query,
-      body: JSON.stringify(req.body, null, 2)
+    console.log('🔍 Webhook Details:', {
+      method: req.method,
+      contentType: req.headers['content-type'],
+      bodyExists: !!req.body,
+      bodyKeys: Object.keys(req.body || {})
     });
-    
+
     const webhookData = req.body;
-    
-    // Temporarily disable secret check for testing
-    /*
-    const webhookSecret = req.query.secret;
-    console.log('🔐 Webhook secret comparison:', {
-      received: webhookSecret,
-      expected: process.env.JIRA_WEBHOOK_SECRET,
-      matches: webhookSecret === process.env.JIRA_WEBHOOK_SECRET
+    console.log('📦 Full webhook data:', JSON.stringify(webhookData, null, 2));
+
+    // Basic validation
+    if (!webhookData || !webhookData.issue) {
+      console.log('❌ Invalid webhook data - missing required fields');
+      return res.status(400).json({ error: 'Invalid webhook data' });
+    }
+
+    console.log('🎫 Issue details:', {
+      key: webhookData.issue.key,
+      event: webhookData.webhookEvent,
+      hasChangelog: !!webhookData.changelog,
+      changeItems: webhookData.changelog?.items?.length || 0
     });
 
-    if (webhookSecret !== process.env.JIRA_WEBHOOK_SECRET) {
-      console.log('❌ Invalid webhook secret received');
-      return res.status(401).json({ error: 'Invalid webhook secret' });
-    }
-    */
-
-    // Check if this is a field update event
-    if (webhookData.webhookEvent === 'jira:issue_updated' && webhookData.changelog?.items) {
-      console.log('📝 Checking for status changes in:', webhookData.changelog.items);
-      
-      // Look specifically for status field changes
-      const statusChange = webhookData.changelog.items.find(
-        item => item.field === 'status' || item.fieldId === process.env.JIRA_STATUS_FIELD
+    // Check for status changes
+    if (webhookData.changelog?.items) {
+      const statusChanges = webhookData.changelog.items.filter(item => 
+        item.field === 'status' || item.fieldId === 'status'
       );
 
-      console.log('🔄 Status change detected:', statusChange);
+      console.log('🔄 Status changes found:', statusChanges);
 
-      if (statusChange) {
+      for (const change of statusChanges) {
         const issueKey = webhookData.issue.key;
-        const oldStatus = statusChange.fromString;
-        const newStatus = statusChange.toString;
-        const updatedBy = webhookData.user.displayName;
+        const oldStatus = change.fromString;
+        const newStatus = change.toString;
+        const updatedBy = webhookData.user?.displayName || 'Unknown User';
 
         console.log('✨ Processing status change:', {
           issueKey,
@@ -97,74 +93,59 @@ const handleJiraWebhook = async (req, res, app) => {
           updatedBy
         });
 
-        // Get additional issue details
-        const issueResponse = await axios({
-          method: 'GET',
-          url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}`,
-          auth: {
-            username: process.env.JIRA_EMAIL,
-            password: process.env.JIRA_API_TOKEN
-          }
-        });
-
-        const issue = issueResponse.data;
-
-        // Send a more detailed notification to Slack
-        await app.client.chat.postMessage({
-          token: process.env.SLACK_BOT_TOKEN,
-          channel: process.env.SLACK_NOTIFICATION_CHANNEL,
-          text: `Status updated for ${issueKey}`,
-          blocks: [
-            {
-              type: "header",
-              text: {
-                type: "plain_text",
-                text: "🔄 Jira Status Update",
-                emoji: true
-              }
-            },
-            {
-              type: "section",
-              fields: [
-                {
-                  type: "mrkdwn",
-                  text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*Campaign:*\n${issue.fields.summary}`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*Previous Status:*\n${oldStatus}`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*New Status:*\n${newStatus}`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*Updated By:*\n${updatedBy}`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*Updated At:*\n${new Date().toLocaleString()}`
+        try {
+          // Send to Slack
+          await app.client.chat.postMessage({
+            token: process.env.SLACK_BOT_TOKEN,
+            channel: process.env.SLACK_NOTIFICATION_CHANNEL,
+            text: `Status updated for ${issueKey}`,
+            blocks: [
+              {
+                type: "header",
+                text: {
+                  type: "plain_text",
+                  text: "🔄 Jira Status Update",
+                  emoji: true
                 }
-              ]
-            }
-          ]
-        });
+              },
+              {
+                type: "section",
+                fields: [
+                  {
+                    type: "mrkdwn",
+                    text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*Previous Status:*\n${oldStatus}`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*New Status:*\n${newStatus}`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*Updated By:*\n${updatedBy}`
+                  }
+                ]
+              }
+            ]
+          });
+          console.log('✅ Slack notification sent successfully');
+        } catch (slackError) {
+          console.error('❌ Error sending Slack notification:', {
+            error: slackError.message,
+            data: slackError.data
+          });
+        }
       }
     }
 
-    // Always return success for now
     res.status(200).json({ status: 'success' });
   } catch (error) {
-    console.error('Error processing webhook:', error);
-    console.error('Error details:', {
+    console.error('❌ Error processing webhook:', {
       message: error.message,
-      stack: error.stack,
-      response: error.response?.data
+      stack: error.stack
     });
     res.status(500).json({ error: 'Internal server error' });
   }
