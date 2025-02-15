@@ -72,28 +72,33 @@ const handleJiraWebhook = async (req, res, app) => {
       changeItems: webhookData.changelog?.items?.length || 0
     });
 
-    // Check for status changes
+    // Check for status changes in both standard and custom fields
     if (webhookData.changelog?.items) {
       const statusChanges = webhookData.changelog.items.filter(item => 
-        item.field === 'status' || item.fieldId === 'status'
+        item.field === 'status' || 
+        item.fieldId === 'status' ||
+        item.fieldId === 'customfield_10281' || // Add custom status field
+        item.field === 'Status'
       );
 
       console.log('🔄 Status changes found:', statusChanges);
 
       for (const change of statusChanges) {
-        const issueKey = webhookData.issue.key;
-        const oldStatus = change.fromString;
-        const newStatus = change.toString;
-        const updatedBy = webhookData.user?.displayName || 'Unknown User';
-
-        console.log('✨ Processing status change:', {
-          issueKey,
-          oldStatus,
-          newStatus,
-          updatedBy
-        });
-
         try {
+          const issueKey = webhookData.issue.key;
+          const oldStatus = change.fromString;
+          const newStatus = change.toString;
+          const updatedBy = webhookData.user?.displayName || 'Unknown User';
+          const summary = webhookData.issue.fields.summary || 'No Summary';
+
+          console.log('✨ Processing status change:', {
+            issueKey,
+            oldStatus,
+            newStatus,
+            updatedBy,
+            summary
+          });
+
           // Send to Slack
           await app.client.chat.postMessage({
             token: process.env.SLACK_BOT_TOKEN,
@@ -104,7 +109,7 @@ const handleJiraWebhook = async (req, res, app) => {
                 type: "header",
                 text: {
                   type: "plain_text",
-                  text: "🔄 Jira Status Update",
+                  text: "🔄 Campaign Status Update",
                   emoji: true
                 }
               },
@@ -114,6 +119,10 @@ const handleJiraWebhook = async (req, res, app) => {
                   {
                     type: "mrkdwn",
                     text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*Campaign:*\n${summary}`
                   },
                   {
                     type: "mrkdwn",
