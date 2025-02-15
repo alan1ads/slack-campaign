@@ -49,21 +49,28 @@ const sendSlackNotification = async (app, issueKey, oldStatus, newStatus, update
 // Webhook handler for Jira status updates
 const handleJiraWebhook = async (req, res, app) => {
   try {
+    console.log('Received webhook from Jira:', {
+      event: req.body.webhookEvent,
+      issueKey: req.body.issue?.key,
+    });
+    
     const webhookData = req.body;
     
     // Verify webhook secret to ensure it's from Jira
     const webhookSecret = req.headers['x-jira-webhook-secret'];
     if (webhookSecret !== process.env.JIRA_WEBHOOK_SECRET) {
+      console.log('Invalid webhook secret received');
       return res.status(401).json({ error: 'Invalid webhook secret' });
     }
 
-    // Check if this is a field update event and if it's for our status field
-    if (webhookData.webhookEvent === 'jira:issue_updated' && 
-        webhookData.changelog?.items) {
-      
+    // Check if this is a field update event
+    if (webhookData.webhookEvent === 'jira:issue_updated' && webhookData.changelog?.items) {
+      // Look specifically for status field changes
       const statusChange = webhookData.changelog.items.find(
-        item => item.fieldId === process.env.JIRA_STATUS_FIELD
+        item => item.field === 'status' // Changed from fieldId to field for Jira system status
       );
+
+      console.log('Status change detected:', statusChange);
 
       if (statusChange) {
         const issueKey = webhookData.issue.key;
@@ -71,14 +78,81 @@ const handleJiraWebhook = async (req, res, app) => {
         const newStatus = statusChange.toString;
         const updatedBy = webhookData.user.displayName;
 
-        // Send notification to Slack
-        await sendSlackNotification(app, issueKey, oldStatus, newStatus, updatedBy);
+        console.log('Processing status change:', {
+          issueKey,
+          oldStatus,
+          newStatus,
+          updatedBy
+        });
+
+        // Get additional issue details
+        const issueResponse = await axios({
+          method: 'GET',
+          url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}`,
+          auth: {
+            username: process.env.JIRA_EMAIL,
+            password: process.env.JIRA_API_TOKEN
+          }
+        });
+
+        const issue = issueResponse.data;
+
+        // Send a more detailed notification to Slack
+        await app.client.chat.postMessage({
+          token: process.env.SLACK_BOT_TOKEN,
+          channel: process.env.SLACK_NOTIFICATION_CHANNEL,
+          text: `Status updated for ${issueKey}`,
+          blocks: [
+            {
+              type: "header",
+              text: {
+                type: "plain_text",
+                text: "🔄 Jira Status Update",
+                emoji: true
+              }
+            },
+            {
+              type: "section",
+              fields: [
+                {
+                  type: "mrkdwn",
+                  text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Campaign:*\n${issue.fields.summary}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Previous Status:*\n${oldStatus}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*New Status:*\n${newStatus}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Updated By:*\n${updatedBy}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Updated At:*\n${new Date().toLocaleString()}`
+                }
+              ]
+            }
+          ]
+        });
       }
     }
 
     res.status(200).json({ status: 'success' });
   } catch (error) {
     console.error('Error processing webhook:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
     res.status(500).json({ error: 'Internal server error' });
   }
 };

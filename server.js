@@ -2,7 +2,6 @@ const { App } = require('@slack/bolt');
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
-const webhookRoutes = require('./src/routes/webhooks');
 
 // Import all handlers
 const findJiraFields = require('./src/handlers/findJiraFields');
@@ -17,6 +16,12 @@ const reviewStart = require('./src/handlers/reviewStart');
 // Import utilities
 const { jira } = require('./src/utils/jiraClient');
 
+// Initialize express app
+const expressApp = express();
+
+// Add middleware for parsing JSON bodies
+expressApp.use(bodyParser.json());
+
 // Initialize Slack app with Socket Mode
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
@@ -25,14 +30,19 @@ const app = new App({
   appToken: process.env.SLACK_APP_TOKEN
 });
 
-// Initialize express app
-const expressApp = express();
+// Add webhook endpoint
+expressApp.post('/jira-webhook', (req, res) => {
+  console.log('Received Jira webhook:', {
+    event: req.body.webhookEvent,
+    issue: req.body.issue?.key
+  });
+  handleJiraWebhook(req, res, app);
+});
 
-// Add middleware for parsing JSON bodies
-expressApp.use(bodyParser.json());
-
-// Add webhook routes after app is initialized
-expressApp.use('/webhooks', webhookRoutes(app));
+// Health check endpoint
+expressApp.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
 
 const { updateJiraIssue, handleJiraUpdateSubmission } = require('./updateJiraIssue');
 
@@ -206,8 +216,9 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
   await app.start();
   console.log('⚡️ Bolt app is running with Socket Mode!');
 
-  // Start the Express server for webhooks
-  const server = expressApp.listen(process.env.PORT || 3000, () => {
-    console.log(`Express server is running on port ${process.env.PORT || 3000}`);
+  // Start the Express server
+  const port = process.env.PORT || 3000;
+  expressApp.listen(port, () => {
+    console.log(`Express server is running on port ${port}`);
   });
 })();
