@@ -3,25 +3,23 @@ const router = express.Router();
 const { handleJiraWebhook } = require('../handlers/updateStatus');
 
 module.exports = (app) => {
-  router.post('/jira-webhook', (req, res) => {
+  router.post('/jira-webhook', express.json(), (req, res) => {
     console.log('🎯 Webhook route hit:', {
       method: req.method,
       path: req.path,
       url: req.url,
-      headers: req.headers,
+      contentType: req.headers['content-type'],
+      hasBody: !!req.body,
+      bodyKeys: Object.keys(req.body || {}),
       timestamp: new Date().toISOString()
     });
 
-    // Log the raw body
-    console.log('📦 Raw request body:', req.body);
-    
-    // Log the parsed body
-    console.log('📨 Parsed webhook payload:', JSON.stringify(req.body, null, 2));
-
-    // Check if body is empty
     if (!req.body || Object.keys(req.body).length === 0) {
       console.log('⚠️ Warning: Empty request body received');
+      return res.status(400).json({ error: 'Empty body received' });
     }
+
+    console.log('📦 Webhook body:', JSON.stringify(req.body, null, 2));
 
     return handleJiraWebhook(req, res, app);
   });

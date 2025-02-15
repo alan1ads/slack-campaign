@@ -20,28 +20,41 @@ const { jira } = require('./src/utils/jiraClient');
 const expressApp = express();
 
 // Add middleware for parsing JSON bodies with increased size limit and logging
-expressApp.use(bodyParser.json({
+expressApp.use(express.json({
   limit: '10mb',
   verify: (req, res, buf) => {
+    console.log('🔄 Processing request body:', buf.toString());
     try {
-      JSON.parse(buf);
+      if (buf.length) {
+        const json = JSON.parse(buf.toString());
+        console.log('✅ Valid JSON received:', typeof json);
+      }
     } catch (e) {
       console.log('❌ Error parsing JSON:', e);
-      throw new Error('Invalid JSON');
     }
   }
 }));
 
-// Add request logging middleware
+// Add raw body logging middleware
 expressApp.use((req, res, next) => {
-  console.log('🌐 Incoming request:', {
+  console.log('📥 Request details:', {
     method: req.method,
     url: req.url,
     path: req.path,
     query: req.query,
     contentType: req.headers['content-type'],
+    contentLength: req.headers['content-length'],
     timestamp: new Date().toISOString()
   });
+
+  if (req.method === 'POST') {
+    console.log('📦 Request body:', {
+      hasBody: !!req.body,
+      bodyType: typeof req.body,
+      bodyKeys: Object.keys(req.body || {}),
+      rawBody: JSON.stringify(req.body, null, 2)
+    });
+  }
   next();
 });
 
@@ -53,13 +66,20 @@ const app = new App({
   appToken: process.env.SLACK_APP_TOKEN
 });
 
-// Add webhook endpoint
-expressApp.post('/jira-webhook', (req, res) => {
-  console.log('Received Jira webhook:', {
-    event: req.body.webhookEvent,
-    issue: req.body.issue?.key
+// Update the webhook endpoint in server.js
+expressApp.post('/webhooks/jira-webhook', (req, res) => {
+  console.log('🎯 Webhook endpoint hit:', {
+    hasBody: !!req.body,
+    bodyKeys: Object.keys(req.body || {}),
+    contentType: req.headers['content-type']
   });
-  handleJiraWebhook(req, res, app);
+  
+  if (!req.body || Object.keys(req.body).length === 0) {
+    console.log('⚠️ Empty body received in webhook');
+    return res.status(400).json({ error: 'Empty body received' });
+  }
+  
+  return handleJiraWebhook(req, res, app);
 });
 
 // Health check endpoint
