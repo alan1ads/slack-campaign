@@ -56,8 +56,14 @@ const handleJiraWebhook = async (req, res, app) => {
     
     const webhookData = req.body;
     
-    // Verify webhook secret to ensure it's from Jira
-    const webhookSecret = req.headers['x-jira-webhook-secret'];
+    // Get secret from query parameter instead of header
+    const webhookSecret = req.query.secret;
+    console.log('Webhook secret comparison:', {
+      received: webhookSecret,
+      expected: process.env.JIRA_WEBHOOK_SECRET,
+      matches: webhookSecret === process.env.JIRA_WEBHOOK_SECRET
+    });
+
     if (webhookSecret !== process.env.JIRA_WEBHOOK_SECRET) {
       console.log('Invalid webhook secret received');
       return res.status(401).json({ error: 'Invalid webhook secret' });
