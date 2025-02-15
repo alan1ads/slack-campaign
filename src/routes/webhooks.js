@@ -7,9 +7,14 @@ module.exports = (app) => {
     console.log('🎯 Webhook route hit:', {
       method: req.method,
       path: req.path,
-      query: req.query,
-      body: req.body
+      url: req.url,
+      body: req.body,
+      timestamp: new Date().toISOString()
     });
+
+    // Log the request regardless of secret validation
+    console.log('📨 Webhook payload:', JSON.stringify(req.body, null, 2));
+
     return handleJiraWebhook(req, res, app);
   });
   return router;

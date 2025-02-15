@@ -22,6 +22,18 @@ const expressApp = express();
 // Add middleware for parsing JSON bodies
 expressApp.use(bodyParser.json());
 
+// Add this after initializing expressApp
+expressApp.use((req, res, next) => {
+  console.log('🌐 Incoming request:', {
+    method: req.method,
+    url: req.url,
+    path: req.path,
+    query: req.query,
+    timestamp: new Date().toISOString()
+  });
+  next();
+});
+
 // Initialize Slack app with Socket Mode
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
