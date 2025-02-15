@@ -49,34 +49,38 @@ const sendSlackNotification = async (app, issueKey, oldStatus, newStatus, update
 // Webhook handler for Jira status updates
 const handleJiraWebhook = async (req, res, app) => {
   try {
-    console.log('Received webhook from Jira:', {
+    console.log('🔍 Received webhook from Jira:', {
       event: req.body.webhookEvent,
       issueKey: req.body.issue?.key,
+      query: req.query,
+      body: JSON.stringify(req.body)
     });
     
     const webhookData = req.body;
     
     // Get secret from query parameter instead of header
     const webhookSecret = req.query.secret;
-    console.log('Webhook secret comparison:', {
+    console.log('🔐 Webhook secret comparison:', {
       received: webhookSecret,
       expected: process.env.JIRA_WEBHOOK_SECRET,
       matches: webhookSecret === process.env.JIRA_WEBHOOK_SECRET
     });
 
     if (webhookSecret !== process.env.JIRA_WEBHOOK_SECRET) {
-      console.log('Invalid webhook secret received');
+      console.log('❌ Invalid webhook secret received');
       return res.status(401).json({ error: 'Invalid webhook secret' });
     }
 
     // Check if this is a field update event
     if (webhookData.webhookEvent === 'jira:issue_updated' && webhookData.changelog?.items) {
+      console.log('📝 Checking for status changes in:', webhookData.changelog.items);
+      
       // Look specifically for status field changes
       const statusChange = webhookData.changelog.items.find(
-        item => item.field === 'status' // Changed from fieldId to field for Jira system status
+        item => item.field === 'status'
       );
 
-      console.log('Status change detected:', statusChange);
+      console.log('🔄 Status change detected:', statusChange);
 
       if (statusChange) {
         const issueKey = webhookData.issue.key;
@@ -84,7 +88,7 @@ const handleJiraWebhook = async (req, res, app) => {
         const newStatus = statusChange.toString;
         const updatedBy = webhookData.user.displayName;
 
-        console.log('Processing status change:', {
+        console.log('✨ Processing status change:', {
           issueKey,
           oldStatus,
           newStatus,

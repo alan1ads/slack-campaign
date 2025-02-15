@@ -4,10 +4,10 @@ const { handleJiraWebhook } = require('../handlers/updateStatus');
 
 module.exports = (app) => {
   router.post('/jira-webhook', (req, res) => {
-    console.log('Webhook route hit:', {
+    console.log('🎯 Webhook route hit:', {
       method: req.method,
       path: req.path,
-      headers: req.headers,
+      query: req.query,
       body: req.body
     });
     return handleJiraWebhook(req, res, app);
