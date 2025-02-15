@@ -19,16 +19,27 @@ const { jira } = require('./src/utils/jiraClient');
 // Initialize express app
 const expressApp = express();
 
-// Add middleware for parsing JSON bodies
-expressApp.use(bodyParser.json());
+// Add middleware for parsing JSON bodies with increased size limit and logging
+expressApp.use(bodyParser.json({
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    try {
+      JSON.parse(buf);
+    } catch (e) {
+      console.log('❌ Error parsing JSON:', e);
+      throw new Error('Invalid JSON');
+    }
+  }
+}));
 
-// Add this after initializing expressApp
+// Add request logging middleware
 expressApp.use((req, res, next) => {
   console.log('🌐 Incoming request:', {
     method: req.method,
     url: req.url,
     path: req.path,
     query: req.query,
+    contentType: req.headers['content-type'],
     timestamp: new Date().toISOString()
   });
   next();
