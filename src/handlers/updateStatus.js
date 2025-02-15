@@ -11,7 +11,79 @@ const STATUS_MAP = {
   'phase complete': '✨ Phase Complete'
 };
 
-const updateStatus = async ({ command, ack, say }) => {
+// Helper function to send Slack notification
+const sendSlackNotification = async (app, issueKey, oldStatus, newStatus, updatedBy) => {
+  try {
+    // Get the issue details
+    const issueResponse = await axios({
+      method: 'GET',
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}`,
+      auth: {
+        username: process.env.JIRA_EMAIL,
+        password: process.env.JIRA_API_TOKEN
+      }
+    });
+
+    const issue = issueResponse.data;
+
+    // Send notification to the configured Slack channel
+    await app.client.chat.postMessage({
+      token: process.env.SLACK_BOT_TOKEN,
+      channel: process.env.SLACK_NOTIFICATION_CHANNEL,
+      text: `Status updated for ${issueKey}`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*Status Update for ${issueKey}*\n*Campaign Name:* \`${issue.fields.summary}\`\n*Status changed from* \`${oldStatus || 'Unknown'}\` *to* \`${newStatus}\`\n*Updated by:* ${updatedBy}`
+          }
+        }
+      ]
+    });
+  } catch (error) {
+    console.error('Error sending Slack notification:', error);
+  }
+};
+
+// Webhook handler for Jira status updates
+const handleJiraWebhook = async (req, res, app) => {
+  try {
+    const webhookData = req.body;
+    
+    // Verify webhook secret to ensure it's from Jira
+    const webhookSecret = req.headers['x-jira-webhook-secret'];
+    if (webhookSecret !== process.env.JIRA_WEBHOOK_SECRET) {
+      return res.status(401).json({ error: 'Invalid webhook secret' });
+    }
+
+    // Check if this is a field update event and if it's for our status field
+    if (webhookData.webhookEvent === 'jira:issue_updated' && 
+        webhookData.changelog?.items) {
+      
+      const statusChange = webhookData.changelog.items.find(
+        item => item.fieldId === process.env.JIRA_STATUS_FIELD
+      );
+
+      if (statusChange) {
+        const issueKey = webhookData.issue.key;
+        const oldStatus = statusChange.fromString;
+        const newStatus = statusChange.toString;
+        const updatedBy = webhookData.user.displayName;
+
+        // Send notification to Slack
+        await sendSlackNotification(app, issueKey, oldStatus, newStatus, updatedBy);
+      }
+    }
+
+    res.status(200).json({ status: 'success' });
+  } catch (error) {
+    console.error('Error processing webhook:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const updateStatus = async ({ command, ack, say, client }) => {
   await ack();
   
   const [issueKey, ...statusParts] = command.text.split(' ');
@@ -134,6 +206,15 @@ const updateStatus = async ({ command, ack, say }) => {
     const updatedIssue = updatedIssueResponse.data;
     const updatedStatus = updatedIssue.fields[process.env.JIRA_STATUS_FIELD]?.value || 'Unknown';
 
+    // After successful status update, send notification
+    await sendSlackNotification(
+      { client }, // Pass the client as part of an app-like object
+      issueKey,
+      issue.fields[process.env.JIRA_STATUS_FIELD]?.value,
+      updatedStatus,
+      command.user_name
+    );
+
     await say({
       text: `Status updated for ${issueKey}`,
       blocks: [
@@ -175,4 +256,4 @@ const updateStatus = async ({ command, ack, say }) => {
   }
 };
 
-module.exports = updateStatus;
+module.exports = { updateStatus, handleJiraWebhook };
