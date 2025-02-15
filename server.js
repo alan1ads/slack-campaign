@@ -1,6 +1,5 @@
 const { App } = require('@slack/bolt');
 require('dotenv').config();
-const http = require('http');
 const express = require('express');
 const bodyParser = require('body-parser');
 const webhookRoutes = require('./src/routes/webhooks');
@@ -18,22 +17,22 @@ const reviewStart = require('./src/handlers/reviewStart');
 // Import utilities
 const { jira } = require('./src/utils/jiraClient');
 
-// Initialize express app
-const expressApp = express();
-
-// Add middleware for parsing JSON bodies
-expressApp.use(bodyParser.json());
-
-// Add webhook routes
-expressApp.use('/webhooks', webhookRoutes(app));
-
-// Initialize app with Socket Mode
+// Initialize Slack app with Socket Mode
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: true,
   appToken: process.env.SLACK_APP_TOKEN
 });
+
+// Initialize express app
+const expressApp = express();
+
+// Add middleware for parsing JSON bodies
+expressApp.use(bodyParser.json());
+
+// Add webhook routes after app is initialized
+expressApp.use('/webhooks', webhookRoutes(app));
 
 const { updateJiraIssue, handleJiraUpdateSubmission } = require('./updateJiraIssue');
 
