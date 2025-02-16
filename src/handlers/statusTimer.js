@@ -7,21 +7,78 @@ let activeTracking = {
   campaign: {}     // For status field (Campaign Status)
 };
 
-// Status thresholds (5 minutes = 0.0833 hours)
+// Status thresholds (customfield_10281) - these are fixed
 const STATUS_THRESHOLDS = {
-  '🟢 Ready to Launch': 0.0833,
-  '⚡ Let it Ride': 0.0833,
-  '✅ Roll Out': 0.0833,
-  '✨ Phase Complete': 0.0833,
-  '💀 Killed': 0.0833,
-  '🔁 Another Chance': 0.0833
+  '🟢 Ready to Launch': 2880,
+  '⚡ Let it Ride': 2880,
+  '✅ Roll Out': 2880,
+  '✨ Phase Complete': 2880,
+  '💀 Killed': 2880,
+  '🔁 Another Chance': 2880
+};
+
+// Campaign Status thresholds (in minutes)
+const CAMPAIGN_STATUS_THRESHOLDS = {
+  'NEW REQUEST': 1440,        // New campaigns need quick review
+  'REQUEST REVIEW': 1440,     // Reviews should be timely
+  'READY TO SHIP': 1440,      // Ready items should move quickly
+  'SUBMISSION REVIEW': 1440,  // Reviews need attention
+  'PHASE 1': 2880,           // Phases can take longer
+  'PHASE 2': 2880,
+  'PHASE 3': 2880,
+  'PHASE 4': 2880,
+  'PHASE COMPLETE': 5      // Should move to next phase/status
+};
+
+let campaignStatusThresholds = {};
+
+const fetchCampaignStatusThresholds = async () => {
+  try {
+    // Get statuses from Jira API
+    const response = await axios({
+      method: 'GET',
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/project/AS/statuses`,
+      auth: {
+        username: process.env.JIRA_EMAIL,
+        password: process.env.JIRA_API_TOKEN
+      }
+    });
+
+    // Get Task type statuses
+    const taskStatuses = response.data.find(type => type.name === 'Task');
+    if (taskStatuses) {
+      // Initialize each status with default threshold (5 minutes)
+      taskStatuses.statuses.forEach(status => {
+        campaignStatusThresholds[status.name] = 5;
+      });
+    }
+
+    console.log('📋 Available Campaign Statuses:', Object.keys(campaignStatusThresholds));
+  } catch (error) {
+    console.error('Error fetching campaign statuses:', error);
+  }
+};
+
+// Call this on startup
+fetchCampaignStatusThresholds();
+
+// Convert minutes to milliseconds
+const getThresholdMs = (statusType, statusValue) => {
+  if (statusType === 'status') {
+    return (STATUS_THRESHOLDS[statusValue] || 5) * 60 * 1000;
+  } else {
+    // For campaign status, convert to uppercase to match keys
+    const campaignStatus = statusValue.toUpperCase();
+    return (CAMPAIGN_STATUS_THRESHOLDS[campaignStatus] || 5) * 60 * 1000;
+  }
 };
 
 // Start tracking when we get a webhook status change
 const startTracking = (issueKey, statusType, statusValue) => {
   activeTracking[statusType][issueKey] = {
     status: statusValue,
-    startTime: new Date()
+    startTime: new Date(),
+    lastAlertTime: null  // Track when we last sent an alert
   };
   console.log(`⏱️ Started tracking ${issueKey} ${statusType}: ${statusValue}`);
 };
@@ -30,6 +87,7 @@ const startTracking = (issueKey, statusType, statusValue) => {
 const checkStatusAlerts = async (app) => {
   try {
     const now = new Date();
+    const ALERT_FREQUENCY_MS = 2 * 60 * 1000; // 2 minutes in milliseconds (for testing)
     
     console.log('🔍 Checking tracked statuses:', {
       campaign: Object.keys(activeTracking.campaign),
@@ -39,7 +97,10 @@ const checkStatusAlerts = async (app) => {
     // Check Status (customfield_10281)
     for (const [issueKey, tracking] of Object.entries(activeTracking.status)) {
       const timeInStatus = now - tracking.startTime;
-      if (timeInStatus > 300000) { // 5 minutes
+      const thresholdMs = getThresholdMs('status', tracking.status);
+      const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : ALERT_FREQUENCY_MS;
+
+      if (timeInStatus > thresholdMs && timeSinceLastAlert >= ALERT_FREQUENCY_MS) {
         console.log(`⚠️ Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
         // Send Slack alert
@@ -75,13 +136,19 @@ const checkStatusAlerts = async (app) => {
             }
           ]
         });
+
+        // After sending alert, update lastAlertTime
+        activeTracking.status[issueKey].lastAlertTime = now;
       }
     }
 
     // Check Campaign Status
     for (const [issueKey, tracking] of Object.entries(activeTracking.campaign)) {
       const timeInStatus = now - tracking.startTime;
-      if (timeInStatus > 300000) { // 5 minutes
+      const thresholdMs = getThresholdMs('campaign', tracking.status);
+      const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : ALERT_FREQUENCY_MS;
+
+      if (timeInStatus > thresholdMs && timeSinceLastAlert >= ALERT_FREQUENCY_MS) {
         console.log(`⚠️ Campaign Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
         // Send Slack alert
@@ -117,6 +184,9 @@ const checkStatusAlerts = async (app) => {
             }
           ]
         });
+
+        // After sending alert, update lastAlertTime
+        activeTracking.campaign[issueKey].lastAlertTime = now;
       }
     }
   } catch (error) {
@@ -142,9 +212,21 @@ const clearTracking = (issueKey, statusType) => {
   }
 };
 
+// Add a function to update thresholds
+const updateCampaignThreshold = (status, minutes) => {
+  const campaignStatus = status.toUpperCase();
+  if (CAMPAIGN_STATUS_THRESHOLDS.hasOwnProperty(campaignStatus)) {
+    CAMPAIGN_STATUS_THRESHOLDS[campaignStatus] = minutes;
+    console.log(`Updated threshold for "${status}" to ${minutes} minutes`);
+  } else {
+    console.log(`Warning: "${status}" is not a valid Campaign Status`);
+  }
+};
+
 module.exports = {
   startTracking,
   clearTracking,
   checkStatusAlerts,
-  activeTracking
+  activeTracking,
+  updateCampaignThreshold
 }; 
