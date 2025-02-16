@@ -12,7 +12,7 @@ const updateCampaignStatus = require('./src/handlers/updateCampaignStatus');
 const checkStatus = require('./src/handlers/checkStatus');
 const searchIssues = require('./src/handlers/searchIssues');
 const reviewStart = require('./src/handlers/reviewStart');
-const { checkStatusAlerts, checkStatusDuration } = require('./src/handlers/statusTimer');
+const { checkStatusAlerts, checkStatusDuration, clearTracking } = require('./src/handlers/statusTimer');
 
 // Import utilities
 const { jira } = require('./src/utils/jiraClient');
@@ -255,6 +255,10 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
   }
 });
 
+// After app initialization but before app.start()
+// Clear any existing tracking on startup
+clearTracking();
+
 // Set up periodic status checks (every minute)
 setInterval(async () => {
   try {
@@ -262,15 +266,14 @@ setInterval(async () => {
   } catch (error) {
     console.error('Error in status check interval:', error);
   }
-}, 60000);
+}, 60000); // Check every minute
 
 // Start the app
 (async () => {
-  // Start the Slack app
   await app.start();
   console.log('⚡️ Bolt app is running with Socket Mode!');
-
-  // Start the Express server
+  
+  // Start Express server
   const port = process.env.PORT || 3000;
   expressApp.listen(port, () => {
     console.log(`Express server is running on port ${port}`);

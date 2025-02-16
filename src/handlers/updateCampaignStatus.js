@@ -1,5 +1,6 @@
 const axios = require('axios');
 require('dotenv').config();
+const { startTracking, clearTracking } = require('./statusTimer');
 
 const updateCampaignStatus = async ({ command, ack, say }) => {
   await ack();
@@ -7,23 +8,32 @@ const updateCampaignStatus = async ({ command, ack, say }) => {
   const [issueKey, ...statusParts] = command.text.split(' ');
   const inputStatus = statusParts.join(' ').toLowerCase();
 
+  // Verify this is an AS issue
+  if (!issueKey.startsWith('AS-')) {
+    await say('Please provide an AS project issue key: `/campaign-status-update AS-123 status`');
+    return;
+  }
+
   console.log('🔍 Getting statuses for project:', process.env.JIRA_PROJECT_KEY);
 
   try {
-    // Get all available statuses from Jira
+    // Get statuses only for AS project
     const statusesResponse = await axios({
       method: 'GET',
-      url: `https://${process.env.JIRA_HOST}/rest/api/3/status`,
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/project/AS/statuses`,
       auth: {
         username: process.env.JIRA_EMAIL,
         password: process.env.JIRA_API_TOKEN
       }
     });
 
-    const availableStatuses = statusesResponse.data.filter(status => 
-      status.scope?.project?.id === '10029' || // Creative Testing project ID
-      status.scope?.project?.key === 'AS'
-    );
+    // Get Task type statuses
+    const taskStatuses = statusesResponse.data.find(type => type.name === 'Task');
+    if (!taskStatuses) {
+      throw new Error('Could not find Task statuses for AS project');
+    }
+
+    const availableStatuses = taskStatuses.statuses;
 
     if (!issueKey || !inputStatus) {
       const statusList = availableStatuses
@@ -123,6 +133,10 @@ const updateCampaignStatus = async ({ command, ack, say }) => {
 
     const updatedIssue = updatedIssueResponse.data;
     const updatedStatus = updatedIssue.fields.status.name;
+
+    // After successful transition, start tracking the new campaign status
+    clearTracking(issueKey, 'campaign');  // Clear old tracking
+    startTracking(issueKey, 'campaign', matchingStatus.name);  // Start tracking new status
 
     await say({
       text: `Campaign Status updated for ${issueKey}`,

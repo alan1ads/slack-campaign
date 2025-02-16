@@ -150,6 +150,14 @@ const handleJiraWebhook = async (req, res, app) => {
             ]
           });
           console.log('✅ Slack notification sent successfully');
+
+          // When we get a status change webhook
+          if (statusChanges.length > 0) {
+            // Clear old tracking
+            clearTracking(issueKey, 'status');
+            // Start tracking new status
+            startTracking(issueKey, 'status', newStatus);
+          }
         } catch (slackError) {
           console.error('❌ Error sending Slack notification:', {
             error: slackError.message,
