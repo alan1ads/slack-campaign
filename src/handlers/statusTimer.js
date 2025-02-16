@@ -8,22 +8,25 @@ let STATUS_THRESHOLDS = {};
 // Initialize both status types from Jira
 const initializeStatuses = async () => {
   try {
-    // Get Campaign Statuses using the same endpoint as updateCampaignStatus.js
-    const statusesResponse = await axios({
+    // Get Campaign Statuses for AS project only
+    const projectResponse = await axios({
       method: 'GET',
-      url: `https://${process.env.JIRA_HOST}/rest/api/3/status`,
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/project/AS/statuses`,
       auth: {
         username: process.env.JIRA_EMAIL,
         password: process.env.JIRA_API_TOKEN
       }
     });
 
+    // Find Task type statuses
+    const taskStatuses = projectResponse.data.find(type => type.name === 'Task');
+    if (!taskStatuses) {
+      throw new Error('Could not find Task statuses for AS project');
+    }
+
     // Set 5-minute threshold for Campaign Statuses
-    CAMPAIGN_STATUSES = statusesResponse.data.reduce((acc, status) => {
-      // Only include statuses from Creative Testing project
-      if (status.scope?.project?.id === '10029') { // Creative Testing project ID
-        acc[status.name] = 0.0833; // 5 minutes
-      }
+    CAMPAIGN_STATUSES = taskStatuses.statuses.reduce((acc, status) => {
+      acc[status.name] = 0.0833; // 5 minutes
       return acc;
     }, {});
 
@@ -37,7 +40,7 @@ const initializeStatuses = async () => {
       '🔁 Another Chance': 0.0833
     };
 
-    console.log('📊 Loaded Campaign Statuses:', Object.keys(CAMPAIGN_STATUSES));
+    console.log('📊 Loaded AS Campaign Statuses:', Object.keys(CAMPAIGN_STATUSES));
     console.log('📊 Loaded Status Values:', Object.keys(STATUS_THRESHOLDS));
   } catch (error) {
     console.error('Error loading statuses:', error);
@@ -151,7 +154,7 @@ const checkStatusAlerts = async (app) => {
   try {
     console.log('🔄 Running status duration check...');
     
-    // Get all active issues
+    // Get all active issues from AS project only
     const response = await axios({
       method: 'GET',
       url: `https://${process.env.JIRA_HOST}/rest/api/3/search`,
@@ -160,12 +163,32 @@ const checkStatusAlerts = async (app) => {
         password: process.env.JIRA_API_TOKEN
       },
       data: {
-        jql: 'project = "Creative Testing" AND resolution = Unresolved',
-        fields: ['key', 'summary', 'status', 'customfield_10281'] // Get both status fields
+        jql: 'project = AS AND resolution = Unresolved', // Changed to use project key
+        fields: ['key', 'summary', 'status', 'customfield_10281']
       }
     });
 
-    console.log(`📋 Checking ${response.data.issues.length} active issues`);
+    console.log(`📋 Checking ${response.data.issues.length} active AS issues`);
+
+    // Get available statuses for AS project
+    const statusesResponse = await axios({
+      method: 'GET',
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/project/AS/statuses`,
+      auth: {
+        username: process.env.JIRA_EMAIL,
+        password: process.env.JIRA_API_TOKEN
+      }
+    });
+
+    // Get Task type statuses for AS project
+    const taskStatuses = statusesResponse.data.find(type => type.name === 'Task');
+    if (taskStatuses) {
+      CAMPAIGN_STATUSES = taskStatuses.statuses.reduce((acc, status) => {
+        acc[status.name] = 0.0833; // 5 minutes
+        return acc;
+      }, {});
+      console.log('📊 Available Campaign Statuses for AS:', Object.keys(CAMPAIGN_STATUSES));
+    }
 
     for (const issue of response.data.issues) {
       const timeInStatus = await calculateTimeInStatus(issue.key);
