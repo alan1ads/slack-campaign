@@ -8,25 +8,22 @@ let STATUS_THRESHOLDS = {};
 // Initialize both status types from Jira
 const initializeStatuses = async () => {
   try {
-    // Get Campaign Statuses specifically for Creative Testing project
-    const projectResponse = await axios({
+    // Get Campaign Statuses using the same endpoint as updateCampaignStatus.js
+    const statusesResponse = await axios({
       method: 'GET',
-      url: `https://${process.env.JIRA_HOST}/rest/api/3/project/AS/statuses`,
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/status`,
       auth: {
         username: process.env.JIRA_EMAIL,
         password: process.env.JIRA_API_TOKEN
       }
     });
 
-    // Find the Task issue type (since your issues are tasks)
-    const taskStatuses = projectResponse.data.find(type => type.name === 'Task');
-    if (!taskStatuses) {
-      throw new Error('Could not find Task issue type statuses');
-    }
-
     // Set 5-minute threshold for Campaign Statuses
-    CAMPAIGN_STATUSES = taskStatuses.statuses.reduce((acc, status) => {
-      acc[status.name] = 0.0833; // 5 minutes
+    CAMPAIGN_STATUSES = statusesResponse.data.reduce((acc, status) => {
+      // Only include statuses from Creative Testing project
+      if (status.scope?.project?.id === '10029') { // Creative Testing project ID
+        acc[status.name] = 0.0833; // 5 minutes
+      }
       return acc;
     }, {});
 
