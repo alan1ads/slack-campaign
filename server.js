@@ -255,13 +255,14 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
   }
 });
 
-// Schedule status alerts to run every minute for testing
-setInterval(() => {
-  checkStatusAlerts(app).catch(console.error);
-}, 60000); // Run every minute (60000ms) instead of every hour (3600000ms)
-
-// Also run it on startup
-checkStatusAlerts(app).catch(console.error);
+// Set up periodic status checks (every minute)
+setInterval(async () => {
+  try {
+    await checkStatusAlerts(app);
+  } catch (error) {
+    console.error('Error in status check interval:', error);
+  }
+}, 60000);
 
 // Start the app
 (async () => {

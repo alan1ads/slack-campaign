@@ -8,7 +8,7 @@ let STATUS_THRESHOLDS = {};
 // Initialize both status types from Jira
 const initializeStatuses = async () => {
   try {
-    // Get all statuses first (like in updateCampaignStatus.js)
+    // Get all statuses
     const statusesResponse = await axios({
       method: 'GET',
       url: `https://${process.env.JIRA_HOST}/rest/api/3/status`,
@@ -18,19 +18,13 @@ const initializeStatuses = async () => {
       }
     });
 
-    // Filter for AS project statuses
-    const asStatuses = statusesResponse.data.filter(status => 
-      status.scope?.project?.id === '10029' || // Creative Testing project ID
-      status.scope?.project?.key === 'AS'
-    );
-
     // Set 5-minute threshold for Campaign Statuses
-    CAMPAIGN_STATUSES = asStatuses.reduce((acc, status) => {
+    CAMPAIGN_STATUSES = statusesResponse.data.reduce((acc, status) => {
       acc[status.name] = 0.0833; // 5 minutes
       return acc;
     }, {});
 
-    // Status values remain the same
+    // Set 5-minute threshold for Status values
     STATUS_THRESHOLDS = {
       '🟢 Ready to Launch': 0.0833,
       '⚡ Let it Ride': 0.0833,
@@ -40,7 +34,7 @@ const initializeStatuses = async () => {
       '🔁 Another Chance': 0.0833
     };
 
-    console.log('📊 Loaded AS Campaign Statuses:', Object.keys(CAMPAIGN_STATUSES));
+    console.log('📊 Loaded Campaign Statuses:', Object.keys(CAMPAIGN_STATUSES));
     console.log('📊 Loaded Status Values:', Object.keys(STATUS_THRESHOLDS));
   } catch (error) {
     console.error('Error loading statuses:', error);
@@ -53,15 +47,6 @@ initializeStatuses();
 
 const getStatusHistory = async (issueKey) => {
   try {
-    // First verify this is an AS issue
-    if (!issueKey.startsWith('AS-')) {
-      console.log(`⚠️ Skipping non-AS issue: ${issueKey}`);
-      return {
-        status: [],
-        campaign: []
-      };
-    }
-
     console.log(`🔍 Getting status history for ${issueKey}`);
     const response = await axios({
       method: 'GET',
@@ -163,7 +148,7 @@ const checkStatusAlerts = async (app) => {
   try {
     console.log('🔄 Running status duration check...');
     
-    // Get only AS issues
+    // Get Creative Testing issues
     const response = await axios({
       method: 'GET',
       url: `https://${process.env.JIRA_HOST}/rest/api/3/search`,
@@ -172,27 +157,26 @@ const checkStatusAlerts = async (app) => {
         password: process.env.JIRA_API_TOKEN
       },
       data: {
-        jql: 'project = "AS" AND resolution = Unresolved', // Explicitly use AS
-        fields: ['key', 'summary', 'status', 'customfield_10281']
+        jql: 'project = "Creative Testing"',
+        fields: [
+          'key',
+          'summary', 
+          'status',
+          'customfield_10281'
+        ]
       }
     });
 
-    console.log(`📋 Checking ${response.data.issues.length} active AS issues`);
+    console.log(`📋 Checking ${response.data.issues.length} active issues`);
 
     for (const issue of response.data.issues) {
-      // Verify it's an AS issue
-      if (!issue.key.startsWith('AS-')) {
-        console.log(`⚠️ Skipping non-AS issue: ${issue.key}`);
-        continue;
-      }
-
       const timeInStatus = await calculateTimeInStatus(issue.key);
       
       // Check Status (customfield_10281)
       const currentStatus = issue.fields.customfield_10281?.value;
       if (currentStatus && STATUS_THRESHOLDS[currentStatus]) {
         const timeInCurrentStatus = timeInStatus.status[currentStatus] || 0;
-        const thresholdMs = STATUS_THRESHOLDS[currentStatus] * 3600000; // Convert hours to ms
+        const thresholdMs = STATUS_THRESHOLDS[currentStatus] * 3600000;
 
         if (timeInCurrentStatus > thresholdMs) {
           console.log(`⚠️ Status threshold exceeded for ${issue.key}: ${Math.round(timeInCurrentStatus / 60000)}m in ${currentStatus}`);

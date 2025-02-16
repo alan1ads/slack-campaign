@@ -49,6 +49,15 @@ const sendSlackNotification = async (app, issueKey, oldStatus, newStatus, update
 // Webhook handler for Jira status updates
 const handleJiraWebhook = async (req, res, app) => {
   try {
+    // Add logging to see what project the webhook is for
+    console.log('🎫 Webhook project:', req.body.issue?.fields?.project?.key);
+    
+    // Only process AS project webhooks
+    if (req.body.issue?.fields?.project?.key !== 'AS') {
+      console.log('⚠️ Skipping webhook for non-AS project');
+      return res.status(200).send('Skipped non-AS project');
+    }
+
     console.log('🔍 Webhook Details:', {
       method: req.method,
       contentType: req.headers['content-type'],

@@ -7,6 +7,8 @@ const updateCampaignStatus = async ({ command, ack, say }) => {
   const [issueKey, ...statusParts] = command.text.split(' ');
   const inputStatus = statusParts.join(' ').toLowerCase();
 
+  console.log('🔍 Getting statuses for project:', process.env.JIRA_PROJECT_KEY);
+
   try {
     // Get all available statuses from Jira
     const statusesResponse = await axios({
@@ -18,7 +20,10 @@ const updateCampaignStatus = async ({ command, ack, say }) => {
       }
     });
 
-    const availableStatuses = statusesResponse.data;
+    const availableStatuses = statusesResponse.data.filter(status => 
+      status.scope?.project?.id === '10029' || // Creative Testing project ID
+      status.scope?.project?.key === 'AS'
+    );
 
     if (!issueKey || !inputStatus) {
       const statusList = availableStatuses
