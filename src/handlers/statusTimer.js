@@ -87,7 +87,7 @@ const startTracking = (issueKey, statusType, statusValue) => {
 const checkStatusAlerts = async (app) => {
   try {
     const now = new Date();
-    const ALERT_FREQUENCY_MS = 2 * 60 * 1000; // 2 minutes in milliseconds (for testing)
+    const ALERT_FREQUENCY_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
     
     console.log('🔍 Checking tracked statuses:', {
       campaign: Object.keys(activeTracking.campaign),
