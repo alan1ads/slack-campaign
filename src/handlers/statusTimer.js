@@ -1,30 +1,44 @@
 const axios = require('axios');
 require('dotenv').config();
 
+const PROJECT_KEY = 'AS';  // We only work with AS project
+
 // We'll store both types of statuses
 let CAMPAIGN_STATUSES = {};
 let STATUS_THRESHOLDS = {};
 
+// We'll store active status tracking
+let activeTracking = {
+  status: {},      // For customfield_10281
+  campaign: {}     // For status field
+};
+
 // Initialize both status types from Jira
 const initializeStatuses = async () => {
   try {
-    // Get all statuses
+    // Get statuses only for AS project
     const statusesResponse = await axios({
       method: 'GET',
-      url: `https://${process.env.JIRA_HOST}/rest/api/3/status`,
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/project/${PROJECT_KEY}/statuses`,
       auth: {
         username: process.env.JIRA_EMAIL,
         password: process.env.JIRA_API_TOKEN
       }
     });
 
+    // Get Task type statuses
+    const taskStatuses = statusesResponse.data.find(type => type.name === 'Task');
+    if (!taskStatuses) {
+      throw new Error('Could not find Task statuses for AS project');
+    }
+
     // Set 5-minute threshold for Campaign Statuses
-    CAMPAIGN_STATUSES = statusesResponse.data.reduce((acc, status) => {
+    CAMPAIGN_STATUSES = taskStatuses.statuses.reduce((acc, status) => {
       acc[status.name] = 0.0833; // 5 minutes
       return acc;
     }, {});
 
-    // Set 5-minute threshold for Status values
+    // Status values for AS project
     STATUS_THRESHOLDS = {
       '🟢 Ready to Launch': 0.0833,
       '⚡ Let it Ride': 0.0833,
@@ -34,11 +48,9 @@ const initializeStatuses = async () => {
       '🔁 Another Chance': 0.0833
     };
 
-    console.log('📊 Loaded Campaign Statuses:', Object.keys(CAMPAIGN_STATUSES));
-    console.log('📊 Loaded Status Values:', Object.keys(STATUS_THRESHOLDS));
+    console.log('📊 AS Project Campaign Statuses:', Object.keys(CAMPAIGN_STATUSES));
   } catch (error) {
-    console.error('Error loading statuses:', error);
-    console.error(error.response?.data || error.message);
+    console.error('Error loading AS project statuses:', error);
   }
 };
 
@@ -47,7 +59,16 @@ initializeStatuses();
 
 const getStatusHistory = async (issueKey) => {
   try {
-    console.log(`🔍 Getting status history for ${issueKey}`);
+    // Only process AS issues
+    if (!issueKey.startsWith('AS-')) {
+      console.log(`⚠️ Skipping non-AS issue: ${issueKey}`);
+      return {
+        status: [],
+        campaign: []
+      };
+    }
+
+    console.log(`🔍 Getting status history for AS-${issueKey}`);
     const response = await axios({
       method: 'GET',
       url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}/changelog`,
@@ -144,11 +165,22 @@ const calculateTimeInStatus = async (issueKey) => {
   }
 };
 
+// Track a new status change
+const startTracking = (issueKey, statusType, statusValue) => {
+  if (!activeTracking[statusType][issueKey]) {
+    activeTracking[statusType][issueKey] = {
+      status: statusValue,
+      startTime: new Date()
+    };
+    console.log(`⏱️ Started tracking ${statusType} for ${issueKey}: ${statusValue}`);
+  }
+};
+
 const checkStatusAlerts = async (app) => {
   try {
-    console.log('🔄 Running status duration check...');
+    console.log('🔄 Running status check for AS project...');
     
-    // Get Creative Testing issues
+    // Get only AS project issues
     const response = await axios({
       method: 'GET',
       url: `https://${process.env.JIRA_HOST}/rest/api/3/search`,
@@ -157,29 +189,33 @@ const checkStatusAlerts = async (app) => {
         password: process.env.JIRA_API_TOKEN
       },
       data: {
-        jql: 'project = "Creative Testing"',
-        fields: [
-          'key',
-          'summary', 
-          'status',
-          'customfield_10281'
-        ]
+        jql: `project = ${PROJECT_KEY}`,
+        fields: ['key', 'summary', 'status', 'customfield_10281']
       }
     });
 
-    console.log(`📋 Checking ${response.data.issues.length} active issues`);
-
+    const now = new Date();
+    
+    // Check each issue's current status
     for (const issue of response.data.issues) {
-      const timeInStatus = await calculateTimeInStatus(issue.key);
-      
-      // Check Status (customfield_10281)
       const currentStatus = issue.fields.customfield_10281?.value;
-      if (currentStatus && STATUS_THRESHOLDS[currentStatus]) {
-        const timeInCurrentStatus = timeInStatus.status[currentStatus] || 0;
-        const thresholdMs = STATUS_THRESHOLDS[currentStatus] * 3600000;
+      const currentCampaignStatus = issue.fields.status.name;
 
-        if (timeInCurrentStatus > thresholdMs) {
-          console.log(`⚠️ Status threshold exceeded for ${issue.key}: ${Math.round(timeInCurrentStatus / 60000)}m in ${currentStatus}`);
+      // Start tracking if not already tracking
+      if (currentStatus) {
+        startTracking(issue.key, 'status', currentStatus);
+      }
+      if (currentCampaignStatus) {
+        startTracking(issue.key, 'campaign', currentCampaignStatus);
+      }
+
+      // Check Status thresholds
+      if (currentStatus && activeTracking.status[issue.key]) {
+        const timeInStatus = now - activeTracking.status[issue.key].startTime;
+        const thresholdMs = 300000; // 5 minutes
+
+        if (timeInStatus > thresholdMs) {
+          console.log(`⚠️ Status threshold exceeded for ${issue.key}: ${Math.round(timeInStatus / 60000)}m in ${currentStatus}`);
           
           await app.client.chat.postMessage({
             token: process.env.SLACK_BOT_TOKEN,
@@ -211,7 +247,7 @@ const checkStatusAlerts = async (app) => {
                   },
                   {
                     type: "mrkdwn",
-                    text: `*Time in Status:*\n${Math.round(timeInCurrentStatus / 60000)} minutes`
+                    text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
                   }
                 ]
               }
@@ -220,14 +256,13 @@ const checkStatusAlerts = async (app) => {
         }
       }
 
-      // Check Campaign Status
-      const currentCampaignStatus = issue.fields.status.name;
-      if (currentCampaignStatus && CAMPAIGN_STATUSES[currentCampaignStatus]) {
-        const timeInCurrentStatus = timeInStatus.campaign[currentCampaignStatus] || 0;
-        const thresholdMs = CAMPAIGN_STATUSES[currentCampaignStatus] * 3600000;
+      // Check Campaign Status thresholds
+      if (currentCampaignStatus && activeTracking.campaign[issue.key]) {
+        const timeInStatus = now - activeTracking.campaign[issue.key].startTime;
+        const thresholdMs = 300000; // 5 minutes
 
-        if (timeInCurrentStatus > thresholdMs) {
-          console.log(`⚠️ Campaign Status threshold exceeded for ${issue.key}: ${Math.round(timeInCurrentStatus / 60000)}m in ${currentCampaignStatus}`);
+        if (timeInStatus > thresholdMs) {
+          console.log(`⚠️ Campaign Status threshold exceeded for ${issue.key}: ${Math.round(timeInStatus / 60000)}m in ${currentCampaignStatus}`);
           
           await app.client.chat.postMessage({
             token: process.env.SLACK_BOT_TOKEN,
@@ -259,7 +294,7 @@ const checkStatusAlerts = async (app) => {
                   },
                   {
                     type: "mrkdwn",
-                    text: `*Time in Status:*\n${Math.round(timeInCurrentStatus / 60000)} minutes`
+                    text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
                   }
                 ]
               }
@@ -280,8 +315,8 @@ const checkStatusDuration = async ({ command, ack, say }) => {
   const issueKey = command.text;
 
   try {
-    if (!issueKey) {
-      await say("Please provide an issue key: `/check-duration AS-123`");
+    if (!issueKey || !issueKey.startsWith('AS-')) {
+      await say("Please provide an AS project issue key: `/check-duration AS-123`");
       return;
     }
 
