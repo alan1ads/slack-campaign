@@ -3,8 +3,8 @@ require('dotenv').config();
 
 // Only track active status changes
 let activeTracking = {
-  status: {},      // For customfield_10281
-  campaign: {}     // For status field
+  status: {},      // For customfield_10281 (Status)
+  campaign: {}     // For status field (Campaign Status)
 };
 
 // Status thresholds (5 minutes = 0.0833 hours)
@@ -31,25 +31,92 @@ const checkStatusAlerts = async (app) => {
   try {
     const now = new Date();
     
-    // Only check issues we're actively tracking
+    console.log('🔍 Checking tracked statuses:', {
+      campaign: Object.keys(activeTracking.campaign),
+      status: Object.keys(activeTracking.status)
+    });
+    
+    // Check Status (customfield_10281)
     for (const [issueKey, tracking] of Object.entries(activeTracking.status)) {
       const timeInStatus = now - tracking.startTime;
-      const thresholdMs = 300000; // 5 minutes
-
-      if (timeInStatus > thresholdMs) {
+      if (timeInStatus > 300000) { // 5 minutes
         console.log(`⚠️ Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
-        // Send alert...
+        
+        // Send Slack alert
+        await app.client.chat.postMessage({
+          token: process.env.SLACK_BOT_TOKEN,
+          channel: process.env.SLACK_NOTIFICATION_CHANNEL,
+          text: `Status Timer Alert for ${issueKey}`,
+          blocks: [
+            {
+              type: "header",
+              text: {
+                type: "plain_text",
+                text: "⏰ Status Timer Alert",
+                emoji: true
+              }
+            },
+            {
+              type: "section",
+              fields: [
+                {
+                  type: "mrkdwn",
+                  text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Current Status:*\n${tracking.status}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
+                }
+              ]
+            }
+          ]
+        });
       }
     }
 
-    // Same for campaign status
+    // Check Campaign Status
     for (const [issueKey, tracking] of Object.entries(activeTracking.campaign)) {
       const timeInStatus = now - tracking.startTime;
-      const thresholdMs = 300000; // 5 minutes
-
-      if (timeInStatus > thresholdMs) {
+      if (timeInStatus > 300000) { // 5 minutes
         console.log(`⚠️ Campaign Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
-        // Send alert...
+        
+        // Send Slack alert
+        await app.client.chat.postMessage({
+          token: process.env.SLACK_BOT_TOKEN,
+          channel: process.env.SLACK_NOTIFICATION_CHANNEL,
+          text: `Campaign Status Timer Alert for ${issueKey}`,
+          blocks: [
+            {
+              type: "header",
+              text: {
+                type: "plain_text",
+                text: "⏰ Campaign Status Timer Alert",
+                emoji: true
+              }
+            },
+            {
+              type: "section",
+              fields: [
+                {
+                  type: "mrkdwn",
+                  text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Current Campaign Status:*\n${tracking.status}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
+                }
+              ]
+            }
+          ]
+        });
       }
     }
   } catch (error) {
@@ -78,5 +145,6 @@ const clearTracking = (issueKey, statusType) => {
 module.exports = {
   startTracking,
   clearTracking,
-  checkStatusAlerts
+  checkStatusAlerts,
+  activeTracking
 }; 

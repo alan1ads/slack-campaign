@@ -82,10 +82,10 @@ const handleJiraWebhook = async (req, res, app) => {
       changeItems: webhookData.changelog?.items?.length || 0
     });
 
-    // Check for status changes in both standard and custom fields
+    // Check for Status changes (customfield_10281 only)
     if (webhookData.changelog?.items) {
       const statusChanges = webhookData.changelog.items.filter(item => 
-        item.fieldId === 'customfield_10281' // Only track custom Status field
+        item.fieldId === 'customfield_10281' // Only Status field
       );
 
       console.log('🔄 Status changes found:', statusChanges);
@@ -105,6 +105,11 @@ const handleJiraWebhook = async (req, res, app) => {
             updatedBy,
             summary
           });
+
+          // Track the Status change
+          clearTracking(issueKey, 'status');
+          startTracking(issueKey, 'status', newStatus);
+          console.log(`🕒 Started tracking Status for ${issueKey}: ${newStatus}`);
 
           // Send to Slack
           await app.client.chat.postMessage({
@@ -148,16 +153,8 @@ const handleJiraWebhook = async (req, res, app) => {
             ]
           });
           console.log('✅ Slack notification sent successfully');
-
-          // Track the Status change (customfield_10281)
-          clearTracking(issueKey, 'status');  // Clear old Status tracking
-          startTracking(issueKey, 'status', newStatus);  // Start tracking new Status
-          console.log(`🕒 Started tracking Status for ${issueKey}: ${newStatus}`);
-        } catch (slackError) {
-          console.error('❌ Error:', {
-            error: slackError.message,
-            data: slackError.data
-          });
+        } catch (error) {
+          console.error('❌ Error:', error);
         }
       }
     }

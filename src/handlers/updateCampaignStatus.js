@@ -1,6 +1,6 @@
 const axios = require('axios');
 require('dotenv').config();
-const { startTracking, clearTracking } = require('./statusTimer');
+const { startTracking, clearTracking, activeTracking } = require('./statusTimer');
 
 const updateCampaignStatus = async ({ command, ack, say }) => {
   await ack();
@@ -134,10 +134,23 @@ const updateCampaignStatus = async ({ command, ack, say }) => {
     const updatedIssue = updatedIssueResponse.data;
     const updatedStatus = updatedIssue.fields.status.name;
 
+    console.log('🔄 Campaign Status update:', {
+      issueKey,
+      oldStatus: transition.from?.name || 'Unknown',
+      newStatus: matchingStatus.name
+    });
+
     // Track the Campaign Status change
-    clearTracking(issueKey, 'campaign');  // Clear old Campaign Status tracking
-    startTracking(issueKey, 'campaign', matchingStatus.name);  // Start tracking new Campaign Status
+    clearTracking(issueKey, 'campaign');
+    startTracking(issueKey, 'campaign', matchingStatus.name);
     console.log(`🕒 Started tracking Campaign Status for ${issueKey}: ${matchingStatus.name}`);
+
+    // Verify tracking is set
+    console.log('🔍 Current tracking state:', {
+      campaign: activeTracking.campaign,
+      status: activeTracking.status,
+      matchingStatus: matchingStatus
+    });
 
     await say({
       text: `Campaign Status updated for ${issueKey}`,
