@@ -134,9 +134,10 @@ const updateCampaignStatus = async ({ command, ack, say }) => {
     const updatedIssue = updatedIssueResponse.data;
     const updatedStatus = updatedIssue.fields.status.name;
 
-    // After successful transition, start tracking the new campaign status
-    clearTracking(issueKey, 'campaign');  // Clear old tracking
-    startTracking(issueKey, 'campaign', matchingStatus.name);  // Start tracking new status
+    // Track the Campaign Status change
+    clearTracking(issueKey, 'campaign');  // Clear old Campaign Status tracking
+    startTracking(issueKey, 'campaign', matchingStatus.name);  // Start tracking new Campaign Status
+    console.log(`🕒 Started tracking Campaign Status for ${issueKey}: ${matchingStatus.name}`);
 
     await say({
       text: `Campaign Status updated for ${issueKey}`,

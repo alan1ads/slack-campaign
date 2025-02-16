@@ -1,5 +1,6 @@
 const axios = require('axios');
 require('dotenv').config();
+const { startTracking, clearTracking } = require('./statusTimer');
 
 // Map the user-friendly commands to exact Jira values
 const STATUS_MAP = {
@@ -84,10 +85,7 @@ const handleJiraWebhook = async (req, res, app) => {
     // Check for status changes in both standard and custom fields
     if (webhookData.changelog?.items) {
       const statusChanges = webhookData.changelog.items.filter(item => 
-        item.field === 'status' || 
-        item.fieldId === 'status' ||
-        item.fieldId === 'customfield_10281' || // Add custom status field
-        item.field === 'Status'
+        item.fieldId === 'customfield_10281' // Only track custom Status field
       );
 
       console.log('🔄 Status changes found:', statusChanges);
@@ -100,7 +98,7 @@ const handleJiraWebhook = async (req, res, app) => {
           const updatedBy = webhookData.user?.displayName || 'Unknown User';
           const summary = webhookData.issue.fields.summary || 'No Summary';
 
-          console.log('✨ Processing status change:', {
+          console.log(`✨ Processing Status change:`, {
             issueKey,
             oldStatus,
             newStatus,
@@ -151,15 +149,12 @@ const handleJiraWebhook = async (req, res, app) => {
           });
           console.log('✅ Slack notification sent successfully');
 
-          // When we get a status change webhook
-          if (statusChanges.length > 0) {
-            // Clear old tracking
-            clearTracking(issueKey, 'status');
-            // Start tracking new status
-            startTracking(issueKey, 'status', newStatus);
-          }
+          // Track the Status change (customfield_10281)
+          clearTracking(issueKey, 'status');  // Clear old Status tracking
+          startTracking(issueKey, 'status', newStatus);  // Start tracking new Status
+          console.log(`🕒 Started tracking Status for ${issueKey}: ${newStatus}`);
         } catch (slackError) {
-          console.error('❌ Error sending Slack notification:', {
+          console.error('❌ Error:', {
             error: slackError.message,
             data: slackError.data
           });
