@@ -12,6 +12,7 @@ const updateCampaignStatus = require('./src/handlers/updateCampaignStatus');
 const checkStatus = require('./src/handlers/checkStatus');
 const searchIssues = require('./src/handlers/searchIssues');
 const reviewStart = require('./src/handlers/reviewStart');
+const { checkStatusAlerts, checkStatusDuration } = require('./src/handlers/statusTimer');
 
 // Import utilities
 const { jira } = require('./src/utils/jiraClient');
@@ -98,6 +99,7 @@ app.command('/list-status', listStatusOptions);
 app.command('/status-update', updateStatus);
 app.command('/campaign-status-update', updateCampaignStatus);
 app.command('/review-start', reviewStart);
+app.command('/check-duration', checkStatusDuration);
 
 // View submissions
 app.view('jira_update_submission', handleJiraUpdateSubmission);
@@ -252,6 +254,14 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
     await say(`Error retrieving metrics: ${error.message}. Please try again.`);
   }
 });
+
+// Schedule status alerts to run every minute for testing
+setInterval(() => {
+  checkStatusAlerts(app).catch(console.error);
+}, 60000); // Run every minute (60000ms) instead of every hour (3600000ms)
+
+// Also run it on startup
+checkStatusAlerts(app).catch(console.error);
 
 // Start the app
 (async () => {
