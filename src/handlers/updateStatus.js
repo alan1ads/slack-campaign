@@ -84,12 +84,22 @@ const handleJiraWebhook = async (req, res, app) => {
 
     // Check for Status changes (customfield_10281 only)
     if (webhookData.changelog?.items) {
+      // Handle Status changes (customfield_10281)
       const statusChanges = webhookData.changelog.items.filter(item => 
         item.fieldId === 'customfield_10281' // Only Status field
       );
 
-      console.log('🔄 Status changes found:', statusChanges);
+      // Handle Campaign Status changes (status field)
+      const campaignStatusChanges = webhookData.changelog.items.filter(item => 
+        item.field === 'status' || item.fieldId === 'status'
+      );
 
+      console.log('🔄 Status changes found:', {
+        status: statusChanges,
+        campaign: campaignStatusChanges
+      });
+
+      // Process Status changes
       for (const change of statusChanges) {
         try {
           const issueKey = webhookData.issue.key;
@@ -116,6 +126,75 @@ const handleJiraWebhook = async (req, res, app) => {
             token: process.env.SLACK_BOT_TOKEN,
             channel: process.env.SLACK_NOTIFICATION_CHANNEL,
             text: `Status updated for ${issueKey}`,
+            blocks: [
+              {
+                type: "header",
+                text: {
+                  type: "plain_text",
+                  text: "🔄 Campaign Status Update",
+                  emoji: true
+                }
+              },
+              {
+                type: "section",
+                fields: [
+                  {
+                    type: "mrkdwn",
+                    text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*Campaign:*\n${summary}`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*Previous Status:*\n${oldStatus}`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*New Status:*\n${newStatus}`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*Updated By:*\n${updatedBy}`
+                  }
+                ]
+              }
+            ]
+          });
+          console.log('✅ Slack notification sent successfully');
+        } catch (error) {
+          console.error('❌ Error:', error);
+        }
+      }
+
+      // Process Campaign Status changes
+      for (const change of campaignStatusChanges) {
+        try {
+          const issueKey = webhookData.issue.key;
+          const oldStatus = change.fromString;
+          const newStatus = change.toString;
+          const updatedBy = webhookData.user?.displayName || 'Unknown User';
+          const summary = webhookData.issue.fields.summary || 'No Summary';
+
+          console.log(`✨ Processing Campaign Status change:`, {
+            issueKey,
+            oldStatus,
+            newStatus,
+            updatedBy,
+            summary
+          });
+
+          // Track the Campaign Status change
+          clearTracking(issueKey, 'campaign');
+          startTracking(issueKey, 'campaign', newStatus);
+          console.log(`🕒 Started tracking Campaign Status for ${issueKey}: ${newStatus}`);
+
+          // Send Slack notification for Campaign Status change
+          await app.client.chat.postMessage({
+            token: process.env.SLACK_BOT_TOKEN,
+            channel: process.env.SLACK_NOTIFICATION_CHANNEL,
+            text: `Campaign Status updated for ${issueKey}`,
             blocks: [
               {
                 type: "header",
