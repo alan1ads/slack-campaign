@@ -1,19 +1,53 @@
 const axios = require('axios');
 require('dotenv').config();
 
-// Define status thresholds (in hours)
-const STATUS_THRESHOLDS = {
-  '🟢 Ready to Launch': 0.0833,  // Alert after 5 minutes
-  '⚡ Let it Ride': 0.0833,      // Alert after 5 minutes
-  '✅ Roll Out': 0.0833,         // Alert after 5 minutes
-  '✨ Phase Complete': 0.0833,   // Alert after 5 minutes
-  '💀 Killed': 0.0833,          // Alert after 5 minutes
-  '🔁 Another Chance': 0.0833    // Alert after 5 minutes
+// We'll store both types of statuses
+let CAMPAIGN_STATUSES = {};
+let STATUS_THRESHOLDS = {};
+
+// Initialize both status types from Jira
+const initializeStatuses = async () => {
+  try {
+    // Get all Campaign Statuses from project
+    const projectResponse = await axios({
+      method: 'GET',
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/project/${process.env.JIRA_PROJECT_KEY}/statuses`,
+      auth: {
+        username: process.env.JIRA_EMAIL,
+        password: process.env.JIRA_API_TOKEN
+      }
+    });
+
+    // Set 5-minute threshold for Campaign Statuses
+    CAMPAIGN_STATUSES = projectResponse.data[0].statuses.reduce((acc, status) => {
+      acc[status.name] = 0.0833; // 5 minutes
+      return acc;
+    }, {});
+
+    // Set 5-minute threshold for Status values (customfield_10281)
+    STATUS_THRESHOLDS = {
+      '🟢 Ready to Launch': 0.0833,
+      '⚡ Let it Ride': 0.0833,
+      '✅ Roll Out': 0.0833,
+      '✨ Phase Complete': 0.0833,
+      '💀 Killed': 0.0833,
+      '🔁 Another Chance': 0.0833
+    };
+
+    console.log('📊 Loaded Campaign Statuses:', Object.keys(CAMPAIGN_STATUSES));
+    console.log('📊 Loaded Status Values:', Object.keys(STATUS_THRESHOLDS));
+  } catch (error) {
+    console.error('Error loading statuses:', error);
+    console.error(error.response?.data || error.message);
+  }
 };
+
+// Initialize on startup
+initializeStatuses();
 
 const getStatusHistory = async (issueKey) => {
   try {
-    // Get issue changelog
+    console.log(`🔍 Getting status history for ${issueKey}`);
     const response = await axios({
       method: 'GET',
       url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}/changelog`,
@@ -23,27 +57,37 @@ const getStatusHistory = async (issueKey) => {
       }
     });
 
-    // Filter for campaign status changes (using customfield_10281)
-    const statusChanges = [];
+    // Track both types of status changes
+    const statusChanges = {
+      status: [],     // For customfield_10281 (Status)
+      campaign: []    // For status field (Campaign Status)
+    };
+
     response.data.values.forEach(change => {
       change.items.forEach(item => {
-        // Look for campaign status field changes
         if (item.fieldId === 'customfield_10281') {
-          statusChanges.push({
+          statusChanges.status.push({
             from: item.fromString,
             to: item.toString,
-            timestamp: new Date(change.created)
+            timestamp: new Date(change.created),
+            type: 'status'
           });
+          console.log(`📝 Status change: ${item.fromString} → ${item.toString}`);
+        } else if (item.field === 'status') {
+          statusChanges.campaign.push({
+            from: item.fromString,
+            to: item.toString,
+            timestamp: new Date(change.created),
+            type: 'campaign'
+          });
+          console.log(`📝 Campaign Status change: ${item.fromString} → ${item.toString}`);
         }
       });
     });
 
-    // Sort changes by timestamp
-    statusChanges.sort((a, b) => a.timestamp - b.timestamp);
-
     return statusChanges;
   } catch (error) {
-    console.error('Error getting status history:', error);
+    console.error(`Error getting status history for ${issueKey}:`, error);
     throw error;
   }
 };
@@ -51,35 +95,59 @@ const getStatusHistory = async (issueKey) => {
 const calculateTimeInStatus = async (issueKey) => {
   try {
     const statusHistory = await getStatusHistory(issueKey);
-    const timeInStatus = {};
-    let previousChange = null;
+    const timeInStatus = {
+      status: {},
+      campaign: {}
+    };
 
-    statusHistory.forEach(change => {
-      if (previousChange) {
-        const duration = change.timestamp - previousChange.timestamp;
-        const status = previousChange.to;
-        timeInStatus[status] = (timeInStatus[status] || 0) + duration;
+    // Calculate for status (customfield_10281)
+    let previousStatus = null;
+    statusHistory.status.forEach(change => {
+      if (previousStatus) {
+        const duration = change.timestamp - previousStatus.timestamp;
+        const status = previousStatus.to;
+        timeInStatus.status[status] = (timeInStatus.status[status] || 0) + duration;
       }
-      previousChange = change;
+      previousStatus = change;
     });
 
-    // Calculate time in current status
-    if (previousChange) {
-      const now = new Date();
-      const duration = now - previousChange.timestamp;
-      const currentStatus = previousChange.to;
-      timeInStatus[currentStatus] = (timeInStatus[currentStatus] || 0) + duration;
+    // Calculate for campaign status
+    let previousCampaign = null;
+    statusHistory.campaign.forEach(change => {
+      if (previousCampaign) {
+        const duration = change.timestamp - previousCampaign.timestamp;
+        const status = previousCampaign.to;
+        timeInStatus.campaign[status] = (timeInStatus.campaign[status] || 0) + duration;
+      }
+      previousCampaign = change;
+    });
+
+    // Calculate current duration for both
+    const now = new Date();
+    if (previousStatus) {
+      const duration = now - previousStatus.timestamp;
+      const currentStatus = previousStatus.to;
+      timeInStatus.status[currentStatus] = (timeInStatus.status[currentStatus] || 0) + duration;
+      console.log(`⏱️ Current Status duration for ${issueKey}: ${Math.round(duration / 60000)}m in ${currentStatus}`);
+    }
+    if (previousCampaign) {
+      const duration = now - previousCampaign.timestamp;
+      const currentStatus = previousCampaign.to;
+      timeInStatus.campaign[currentStatus] = (timeInStatus.campaign[currentStatus] || 0) + duration;
+      console.log(`⏱️ Current Campaign Status duration for ${issueKey}: ${Math.round(duration / 60000)}m in ${currentStatus}`);
     }
 
     return timeInStatus;
   } catch (error) {
-    console.error('Error calculating time in status:', error);
+    console.error(`Error calculating time in status for ${issueKey}:`, error);
     throw error;
   }
 };
 
 const checkStatusAlerts = async (app) => {
   try {
+    console.log('🔄 Running status duration check...');
+    
     // Get all active issues
     const response = await axios({
       method: 'GET',
@@ -90,27 +158,72 @@ const checkStatusAlerts = async (app) => {
       },
       data: {
         jql: 'project = "Creative Testing" AND resolution = Unresolved',
-        fields: ['key', 'summary', 'customfield_10281'] // Make sure we get the campaign status field
+        fields: ['key', 'summary', 'status', 'customfield_10281'] // Get both status fields
       }
     });
 
+    console.log(`📋 Checking ${response.data.issues.length} active issues`);
+
     for (const issue of response.data.issues) {
       const timeInStatus = await calculateTimeInStatus(issue.key);
-      const currentStatus = issue.fields.customfield_10281?.value; // Get the campaign status value
       
+      // Check Status (customfield_10281)
+      const currentStatus = issue.fields.customfield_10281?.value;
       if (currentStatus && STATUS_THRESHOLDS[currentStatus]) {
-        const timeInCurrentStatus = timeInStatus[currentStatus] || 0;
+        const timeInCurrentStatus = timeInStatus.status[currentStatus] || 0;
         const thresholdMs = STATUS_THRESHOLDS[currentStatus] * 3600000; // Convert hours to ms
 
         if (timeInCurrentStatus > thresholdMs) {
-          console.log('🚨 Alert threshold exceeded:', {
-            issue: issue.key,
-            status: currentStatus,
-            timeInStatus: Math.round(timeInCurrentStatus / 3600000),
-            threshold: STATUS_THRESHOLDS[currentStatus]
+          console.log(`⚠️ Status threshold exceeded for ${issue.key}: ${Math.round(timeInCurrentStatus / 60000)}m in ${currentStatus}`);
+          
+          await app.client.chat.postMessage({
+            token: process.env.SLACK_BOT_TOKEN,
+            channel: process.env.SLACK_NOTIFICATION_CHANNEL,
+            text: `⚠️ Status Duration Alert`,
+            blocks: [
+              {
+                type: "header",
+                text: {
+                  type: "plain_text",
+                  text: "⚠️ Status Duration Alert",
+                  emoji: true
+                }
+              },
+              {
+                type: "section",
+                fields: [
+                  {
+                    type: "mrkdwn",
+                    text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issue.key}|${issue.key}>`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*Campaign:*\n${issue.fields.summary}`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*Current Status:*\n${currentStatus}`
+                  },
+                  {
+                    type: "mrkdwn",
+                    text: `*Time in Status:*\n${Math.round(timeInCurrentStatus / 60000)} minutes`
+                  }
+                ]
+              }
+            ]
           });
+        }
+      }
 
-          // Send alert to Slack
+      // Check Campaign Status
+      const currentCampaignStatus = issue.fields.status.name;
+      if (currentCampaignStatus && CAMPAIGN_STATUSES[currentCampaignStatus]) {
+        const timeInCurrentStatus = timeInStatus.campaign[currentCampaignStatus] || 0;
+        const thresholdMs = CAMPAIGN_STATUSES[currentCampaignStatus] * 3600000;
+
+        if (timeInCurrentStatus > thresholdMs) {
+          console.log(`⚠️ Campaign Status threshold exceeded for ${issue.key}: ${Math.round(timeInCurrentStatus / 60000)}m in ${currentCampaignStatus}`);
+          
           await app.client.chat.postMessage({
             token: process.env.SLACK_BOT_TOKEN,
             channel: process.env.SLACK_NOTIFICATION_CHANNEL,
@@ -137,15 +250,11 @@ const checkStatusAlerts = async (app) => {
                   },
                   {
                     type: "mrkdwn",
-                    text: `*Current Status:*\n${currentStatus}`
+                    text: `*Current Campaign Status:*\n${currentCampaignStatus}`
                   },
                   {
                     type: "mrkdwn",
                     text: `*Time in Status:*\n${Math.round(timeInCurrentStatus / 60000)} minutes`
-                  },
-                  {
-                    type: "mrkdwn",
-                    text: `*Threshold:*\n5 minutes`
                   }
                 ]
               }
@@ -159,7 +268,7 @@ const checkStatusAlerts = async (app) => {
   }
 };
 
-// Add a command to check status duration for a specific issue
+// Command handler for /check-duration
 const checkStatusDuration = async ({ command, ack, say }) => {
   await ack();
   
@@ -171,15 +280,22 @@ const checkStatusDuration = async ({ command, ack, say }) => {
       return;
     }
 
+    console.log(`🔍 Checking duration for ${issueKey}`);
     const timeInStatus = await calculateTimeInStatus(issueKey);
     
-    // Format the durations
-    const formattedDurations = Object.entries(timeInStatus).map(([status, duration]) => {
-      const hours = Math.round(duration / 3600000);
-      const days = Math.floor(hours / 24);
-      const remainingHours = hours % 24;
-      return `*${status}:* ${days}d ${remainingHours}h`;
-    }).join('\n');
+    // Format status durations
+    const statusDurations = Object.entries(timeInStatus.status)
+      .map(([status, duration]) => {
+        const minutes = Math.round(duration / 60000);
+        return `*${status}:* ${minutes}m`;
+      }).join('\n');
+
+    // Format campaign status durations
+    const campaignDurations = Object.entries(timeInStatus.campaign)
+      .map(([status, duration]) => {
+        const minutes = Math.round(duration / 60000);
+        return `*${status}:* ${minutes}m`;
+      }).join('\n');
 
     await say({
       text: `Status duration for ${issueKey}`,
@@ -188,7 +304,7 @@ const checkStatusDuration = async ({ command, ack, say }) => {
           type: "header",
           text: {
             type: "plain_text",
-            text: "📊 Campaign Status Duration",
+            text: "📊 Status Duration Report",
             emoji: true
           }
         },
@@ -196,7 +312,21 @@ const checkStatusDuration = async ({ command, ack, say }) => {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: `*Issue:* ${issueKey}\n\n${formattedDurations}`
+            text: `*Issue:* ${issueKey}`
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*Status History (Ready to Launch, Let it Ride, etc):*\n${statusDurations || 'No history'}`
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*Campaign Status History (Phase 1, Request Review, etc):*\n${campaignDurations || 'No history'}`
           }
         }
       ]
