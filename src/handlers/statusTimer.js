@@ -19,8 +19,8 @@ const STATUS_THRESHOLDS = {
 
 // Campaign Status thresholds (in minutes)
 const CAMPAIGN_STATUS_THRESHOLDS = {
-  'NEW REQUEST': 3,             // 3 minutes (testing) - starts only when assigned
-  'REQUEST REVIEW': 3,          // 3 minutes (testing) - will be 20 hours
+  'NEW REQUEST': 10,            // 10 minutes (starts only when assigned)
+  'REQUEST REVIEW': 1200,       // 20 hours
   'READY TO SHIP': 1440,        // 24 hours
   'SUBMISSION REVIEW': 240,     // 4 hours
   'PHASE 1': 3120,             // 52 hours
