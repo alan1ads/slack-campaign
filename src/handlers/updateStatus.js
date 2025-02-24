@@ -187,7 +187,7 @@ const handleJiraWebhook = async (req, res, app) => {
 
           // Track the Campaign Status change
           clearTracking(issueKey, 'campaign');
-          startTracking(issueKey, 'campaign', newStatus);
+          startTracking(issueKey, 'campaign', newStatus, webhookData.issue);
           console.log(`🕒 Started tracking Campaign Status for ${issueKey}: ${newStatus}`);
 
           // Send Slack notification for Campaign Status change

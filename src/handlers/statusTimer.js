@@ -19,15 +19,15 @@ const STATUS_THRESHOLDS = {
 
 // Campaign Status thresholds (in minutes)
 const CAMPAIGN_STATUS_THRESHOLDS = {
-  'NEW REQUEST': 1440,        // New campaigns need quick review
-  'REQUEST REVIEW': 1440,     // Reviews should be timely
-  'READY TO SHIP': 1440,      // Ready items should move quickly
-  'SUBMISSION REVIEW': 1440,  // Reviews need attention
-  'PHASE 1': 2880,           // Phases can take longer
-  'PHASE 2': 2880,
-  'PHASE 3': 2880,
-  'PHASE 4': 2880,
-  'PHASE COMPLETE': 5      // Should move to next phase/status
+  'NEW REQUEST': 3,             // 3 minutes for testing (will change to 10 later)
+  'REQUEST REVIEW': 1200,       // 20 hours
+  'READY TO SHIP': 1440,        // 24 hours
+  'SUBMISSION REVIEW': 240,     // 4 hours
+  'PHASE 1': 3120,             // 52 hours
+  'PHASE 2': 4560,             // 76 hours
+  'PHASE 3': 10080,            // 168 hours (1 week)
+  'PHASE 4': 10080,            // 168 hours (1 week)
+  'PHASE COMPLETE': null        // Timer disabled
 };
 
 let campaignStatusThresholds = {};
@@ -62,23 +62,50 @@ const fetchCampaignStatusThresholds = async () => {
 // Call this on startup
 fetchCampaignStatusThresholds();
 
-// Convert minutes to milliseconds
-const getThresholdMs = (statusType, statusValue) => {
+// Check if issue has an assignee
+const hasAssignee = (issue) => {
+  return issue?.fields?.assignee !== null;
+};
+
+// Convert minutes to milliseconds with special handling
+const getThresholdMs = (statusType, statusValue, issue) => {
   if (statusType === 'status') {
     return (STATUS_THRESHOLDS[statusValue] || 5) * 60 * 1000;
   } else {
     // For campaign status, convert to uppercase to match keys
     const campaignStatus = statusValue.toUpperCase();
+    
+    // Special handling for NEW REQUEST
+    if (campaignStatus === 'NEW REQUEST') {
+      // Only start timer if there's an assignee
+      if (!hasAssignee(issue)) {
+        return null; // Don't start timer
+      }
+    }
+    
+    // Return null for PHASE COMPLETE to disable timer
+    if (campaignStatus === 'PHASE COMPLETE') {
+      return null;
+    }
+    
     return (CAMPAIGN_STATUS_THRESHOLDS[campaignStatus] || 5) * 60 * 1000;
   }
 };
 
 // Start tracking when we get a webhook status change
-const startTracking = (issueKey, statusType, statusValue) => {
+const startTracking = (issueKey, statusType, statusValue, issue) => {
+  const thresholdMs = getThresholdMs(statusType, statusValue, issue);
+  
+  // Don't track if threshold is null
+  if (thresholdMs === null) {
+    console.log(`⏱️ Tracking disabled for ${issueKey} ${statusType}: ${statusValue}`);
+    return;
+  }
+  
   activeTracking[statusType][issueKey] = {
     status: statusValue,
     startTime: new Date(),
-    lastAlertTime: null  // Track when we last sent an alert
+    lastAlertTime: null
   };
   console.log(`⏱️ Started tracking ${issueKey} ${statusType}: ${statusValue}`);
 };
@@ -87,7 +114,7 @@ const startTracking = (issueKey, statusType, statusValue) => {
 const checkStatusAlerts = async (app) => {
   try {
     const now = new Date();
-    const ALERT_FREQUENCY_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    const ALERT_FREQUENCY_MS = 24 * 60 * 60 * 1000; // 24 hours
     
     console.log('🔍 Checking tracked statuses:', {
       campaign: Object.keys(activeTracking.campaign),
@@ -97,7 +124,7 @@ const checkStatusAlerts = async (app) => {
     // Check Status (customfield_10281)
     for (const [issueKey, tracking] of Object.entries(activeTracking.status)) {
       const timeInStatus = now - tracking.startTime;
-      const thresholdMs = getThresholdMs('status', tracking.status);
+      const thresholdMs = getThresholdMs('status', tracking.status, tracking.issue);
       const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : ALERT_FREQUENCY_MS;
 
       if (timeInStatus > thresholdMs && timeSinceLastAlert >= ALERT_FREQUENCY_MS) {
@@ -145,7 +172,7 @@ const checkStatusAlerts = async (app) => {
     // Check Campaign Status
     for (const [issueKey, tracking] of Object.entries(activeTracking.campaign)) {
       const timeInStatus = now - tracking.startTime;
-      const thresholdMs = getThresholdMs('campaign', tracking.status);
+      const thresholdMs = getThresholdMs('campaign', tracking.status, tracking.issue);
       const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : ALERT_FREQUENCY_MS;
 
       if (timeInStatus > thresholdMs && timeSinceLastAlert >= ALERT_FREQUENCY_MS) {
