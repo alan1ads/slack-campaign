@@ -178,7 +178,9 @@ const checkStatusAlerts = async (app) => {
       if (timeInStatus > thresholdMs && timeSinceLastAlert >= ALERT_FREQUENCY_MS) {
         console.log(`⚠️ Campaign Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
-        // Send Slack alert
+        // Send Slack alert with custom message for NEW REQUEST
+        const isNewRequest = tracking.status.toUpperCase() === 'NEW REQUEST';
+        
         await app.client.chat.postMessage({
           token: process.env.SLACK_BOT_TOKEN,
           channel: process.env.SLACK_NOTIFICATION_CHANNEL,
@@ -188,7 +190,7 @@ const checkStatusAlerts = async (app) => {
               type: "header",
               text: {
                 type: "plain_text",
-                text: "⏰ Campaign Status Timer Alert",
+                text: isNewRequest ? "⏰ Assignee Action Required" : "⏰ Campaign Status Timer Alert",
                 emoji: true
               }
             },
@@ -201,7 +203,13 @@ const checkStatusAlerts = async (app) => {
                 },
                 {
                   type: "mrkdwn",
-                  text: `*Current Campaign Status:*\n${tracking.status}`
+                  text: `*Campaign:*\n${tracking.status}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: isNewRequest 
+                    ? "*Alert:*\nAssignee has been on this task for over 10 minutes"
+                    : `*Current Campaign Status:*\n${tracking.status}`
                 },
                 {
                   type: "mrkdwn",

@@ -69,6 +69,18 @@ const handleJiraWebhook = async (req, res, app) => {
     const webhookData = req.body;
     console.log('📦 Full webhook data:', JSON.stringify(webhookData, null, 2));
 
+    // Check if this is a deletion event
+    if (webhookData.webhookEvent === 'jira:issue_deleted') {
+      const issueKey = webhookData.issue.key;
+      console.log(`🗑️ Issue deleted: ${issueKey}, clearing all tracking`);
+      
+      // Clear both types of tracking for this issue
+      clearTracking(issueKey, 'status');
+      clearTracking(issueKey, 'campaign');
+      
+      return res.status(200).json({ status: 'success', message: 'Tracking cleared for deleted issue' });
+    }
+
     // Basic validation
     if (!webhookData || !webhookData.issue) {
       console.log('❌ Invalid webhook data - missing required fields');
