@@ -82,11 +82,11 @@ const handleJiraWebhook = async (req, res, app) => {
       changeItems: webhookData.changelog?.items?.length || 0
     });
 
-    // Check for Status changes (customfield_10281 only)
+    // Check for Status changes in both standard and custom fields
     if (webhookData.changelog?.items) {
       // Handle Status changes (customfield_10281)
       const statusChanges = webhookData.changelog.items.filter(item => 
-        item.fieldId === 'customfield_10281' // Only Status field
+        item.fieldId === 'customfield_10281'
       );
 
       // Handle Campaign Status changes (status field)
@@ -94,9 +94,15 @@ const handleJiraWebhook = async (req, res, app) => {
         item.field === 'status' || item.fieldId === 'status'
       );
 
-      console.log('🔄 Status changes found:', {
+      // Handle Assignee changes
+      const assigneeChanges = webhookData.changelog.items.filter(item => 
+        item.field === 'assignee'
+      );
+
+      console.log('🔄 Changes found:', {
         status: statusChanges,
-        campaign: campaignStatusChanges
+        campaign: campaignStatusChanges,
+        assignee: assigneeChanges
       });
 
       // Process Status changes
@@ -234,6 +240,23 @@ const handleJiraWebhook = async (req, res, app) => {
           console.log('✅ Slack notification sent successfully');
         } catch (error) {
           console.error('❌ Error:', error);
+        }
+      }
+
+      // Process Assignee changes
+      for (const change of assigneeChanges) {
+        try {
+          const issueKey = webhookData.issue.key;
+          const currentStatus = webhookData.issue.fields.status.name;
+
+          // If it's a NEW REQUEST and someone was assigned, start tracking
+          if (currentStatus.toUpperCase() === 'NEW REQUEST' && change.to) {
+            console.log(`👤 Assignee added to NEW REQUEST ${issueKey}, starting timer`);
+            clearTracking(issueKey, 'campaign');
+            startTracking(issueKey, 'campaign', currentStatus, webhookData.issue);
+          }
+        } catch (error) {
+          console.error('❌ Error handling assignee change:', error);
         }
       }
     }
