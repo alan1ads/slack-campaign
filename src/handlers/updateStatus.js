@@ -59,27 +59,8 @@ const handleJiraWebhook = async (req, res, app) => {
       return res.status(200).send('Skipped non-AS project');
     }
 
-    console.log('🔍 Webhook Details:', {
-      method: req.method,
-      contentType: req.headers['content-type'],
-      bodyExists: !!req.body,
-      bodyKeys: Object.keys(req.body || {})
-    });
-
     const webhookData = req.body;
     console.log('📦 Full webhook data:', JSON.stringify(webhookData, null, 2));
-
-    // Check if this is a deletion event
-    if (webhookData.webhookEvent === 'jira:issue_deleted') {
-      const issueKey = webhookData.issue.key;
-      console.log(`🗑️ Issue deleted: ${issueKey}, clearing all tracking`);
-      
-      // Clear both types of tracking for this issue
-      clearTracking(issueKey, 'status');
-      clearTracking(issueKey, 'campaign');
-      
-      return res.status(200).json({ status: 'success', message: 'Tracking cleared for deleted issue' });
-    }
 
     // Basic validation
     if (!webhookData || !webhookData.issue) {

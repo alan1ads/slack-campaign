@@ -110,6 +110,28 @@ const startTracking = (issueKey, statusType, statusValue, issue) => {
   console.log(`⏱️ Started tracking ${issueKey} ${statusType}: ${statusValue}`);
 };
 
+// Add a function to check if issue exists
+const checkIssueExists = async (issueKey) => {
+  try {
+    await axios({
+      method: 'GET',
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}`,
+      auth: {
+        username: process.env.JIRA_EMAIL,
+        password: process.env.JIRA_API_TOKEN
+      }
+    });
+    return true;
+  } catch (error) {
+    if (error.response?.status === 404) {
+      console.log(`🗑️ Issue ${issueKey} no longer exists, clearing tracking`);
+      clearTracking(issueKey, 'status');
+      clearTracking(issueKey, 'campaign');
+    }
+    return false;
+  }
+};
+
 // Check durations and alert if needed
 const checkStatusAlerts = async (app) => {
   try {
@@ -123,6 +145,11 @@ const checkStatusAlerts = async (app) => {
     
     // Check Status (customfield_10281)
     for (const [issueKey, tracking] of Object.entries(activeTracking.status)) {
+      // First verify issue still exists
+      if (!(await checkIssueExists(issueKey))) {
+        continue; // Skip if issue doesn't exist
+      }
+
       const timeInStatus = now - tracking.startTime;
       const thresholdMs = getThresholdMs('status', tracking.status, tracking.issue);
       const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : ALERT_FREQUENCY_MS;
@@ -171,6 +198,11 @@ const checkStatusAlerts = async (app) => {
 
     // Check Campaign Status
     for (const [issueKey, tracking] of Object.entries(activeTracking.campaign)) {
+      // First verify issue still exists
+      if (!(await checkIssueExists(issueKey))) {
+        continue; // Skip if issue doesn't exist
+      }
+
       const timeInStatus = now - tracking.startTime;
       const thresholdMs = getThresholdMs('campaign', tracking.status, tracking.issue);
       const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : ALERT_FREQUENCY_MS;
