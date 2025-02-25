@@ -22,7 +22,7 @@ const STATUS_THRESHOLDS = {
 
 // Campaign Status thresholds (in minutes)
 const CAMPAIGN_STATUS_THRESHOLDS = {
-  'NEW REQUEST': 10,            // 10 minutes (starts only when assigned)
+  'NEW REQUEST': 2,             // 2 minutes (testing) - starts only when assigned
   'REQUEST REVIEW': 1200,       // 20 hours
   'READY TO SHIP': 1440,        // 24 hours
   'SUBMISSION REVIEW': 240,     // 4 hours
@@ -135,6 +135,18 @@ const checkIssueExists = async (issueKey) => {
   }
 };
 
+// Add ensure channel access function
+const ensureChannelAccess = async (app, channelId) => {
+  try {
+    await app.client.conversations.join({
+      token: process.env.SLACK_BOT_TOKEN,
+      channel: channelId
+    });
+  } catch (error) {
+    console.error('Error joining channel:', error);
+  }
+};
+
 // Check durations and alert if needed
 const checkStatusAlerts = async (app) => {
   try {
@@ -159,6 +171,9 @@ const checkStatusAlerts = async (app) => {
 
       if (timeInStatus > thresholdMs && timeSinceLastAlert >= ALERT_FREQUENCY_MS) {
         console.log(`⚠️ Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
+        
+        // Ensure channel access before sending
+        await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
         
         // Send Slack alert
         await app.client.chat.postMessage({
@@ -212,6 +227,9 @@ const checkStatusAlerts = async (app) => {
 
       if (timeInStatus > thresholdMs && timeSinceLastAlert >= ALERT_FREQUENCY_MS) {
         console.log(`⚠️ Campaign Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
+        
+        // Ensure channel access before sending
+        await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
         
         // Send Slack alert with custom message for NEW REQUEST
         const isNewRequest = tracking.status.toUpperCase() === 'NEW REQUEST';
