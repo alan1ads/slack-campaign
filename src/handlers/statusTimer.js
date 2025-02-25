@@ -87,8 +87,8 @@ const getThresholdMs = (statusType, statusValue, issue) => {
       }
     }
     
-    // Return null for PHASE COMPLETE to disable timer
-    if (campaignStatus === 'PHASE COMPLETE') {
+    // Return null for PHASE COMPLETE and FAILED to disable timer
+    if (campaignStatus === 'PHASE COMPLETE' || campaignStatus === 'FAILED') {
       return null;
     }
     
