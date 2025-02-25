@@ -1,6 +1,9 @@
 const axios = require('axios');
 require('dotenv').config();
 
+// Add timer alerts channel constant
+const TIMER_ALERTS_CHANNEL = 'C08F7C8RCV7';
+
 // Only track active status changes
 let activeTracking = {
   status: {},      // For customfield_10281 (Status)
@@ -160,7 +163,7 @@ const checkStatusAlerts = async (app) => {
         // Send Slack alert
         await app.client.chat.postMessage({
           token: process.env.SLACK_BOT_TOKEN,
-          channel: process.env.SLACK_NOTIFICATION_CHANNEL,
+          channel: TIMER_ALERTS_CHANNEL,
           text: `Status Timer Alert for ${issueKey}`,
           blocks: [
             {
@@ -215,7 +218,7 @@ const checkStatusAlerts = async (app) => {
         
         await app.client.chat.postMessage({
           token: process.env.SLACK_BOT_TOKEN,
-          channel: process.env.SLACK_NOTIFICATION_CHANNEL,
+          channel: TIMER_ALERTS_CHANNEL,
           text: `Campaign Status Timer Alert for ${issueKey}`,
           blocks: [
             {
