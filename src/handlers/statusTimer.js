@@ -151,7 +151,6 @@ const ensureChannelAccess = async (app, channelId) => {
 const checkStatusAlerts = async (app) => {
   try {
     const now = new Date();
-    const ALERT_FREQUENCY_MS = 24 * 60 * 60 * 1000; // 24 hours
     
     console.log('🔍 Checking tracked statuses:', {
       campaign: Object.keys(activeTracking.campaign),
@@ -167,9 +166,9 @@ const checkStatusAlerts = async (app) => {
 
       const timeInStatus = now - tracking.startTime;
       const thresholdMs = getThresholdMs('status', tracking.status, tracking.issue);
-      const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : ALERT_FREQUENCY_MS;
+      const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : thresholdMs;
 
-      if (timeInStatus > thresholdMs && timeSinceLastAlert >= ALERT_FREQUENCY_MS) {
+      if (timeInStatus > thresholdMs && timeSinceLastAlert >= thresholdMs) {
         console.log(`⚠️ Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
         // Ensure channel access before sending
@@ -223,9 +222,9 @@ const checkStatusAlerts = async (app) => {
 
       const timeInStatus = now - tracking.startTime;
       const thresholdMs = getThresholdMs('campaign', tracking.status, tracking.issue);
-      const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : ALERT_FREQUENCY_MS;
+      const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : thresholdMs;
 
-      if (timeInStatus > thresholdMs && timeSinceLastAlert >= ALERT_FREQUENCY_MS) {
+      if (timeInStatus > thresholdMs && timeSinceLastAlert >= thresholdMs) {
         console.log(`⚠️ Campaign Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
         // Ensure channel access before sending
