@@ -255,27 +255,58 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
   }
 });
 
-// After app initialization but before app.start()
-// Clear any existing tracking on startup
-clearTracking();
-
-// Set up periodic status checks (every minute)
-setInterval(async () => {
+// After all the imports and before app initialization, add the reconnection function
+const startSocketModeClient = async (app) => {
   try {
-    await checkStatusAlerts(app);
+    await app.start();
+    console.log('⚡️ Bolt app is running with Socket Mode!');
   } catch (error) {
-    console.error('Error in status check interval:', error);
+    console.error('❌ Error starting Socket Mode:', error);
+    // Try to reconnect after a delay
+    setTimeout(() => startSocketModeClient(app), 5000);
   }
-}, 60000); // Check every minute
+};
 
-// Start the app
+// Replace the existing start-up code at the bottom with this:
 (async () => {
-  await app.start();
-  console.log('⚡️ Bolt app is running with Socket Mode!');
-  
-  // Start Express server
-  const port = process.env.PORT || 3000;
-  expressApp.listen(port, () => {
-    console.log(`Express server is running on port ${port}`);
-  });
+  try {
+    // Clear any existing tracking on startup
+    clearTracking();
+
+    // Set up periodic status checks (every minute)
+    setInterval(async () => {
+      try {
+        await checkStatusAlerts(app);
+      } catch (error) {
+        console.error('Error in status check interval:', error);
+      }
+    }, 60000); // Check every minute
+
+    // Add Socket Mode event listeners
+    app.client.on('unable_to_socket_mode_start', async () => {
+      console.log('🔌 Unable to start Socket Mode, attempting to reconnect...');
+      setTimeout(() => startSocketModeClient(app), 5000);
+    });
+
+    app.client.on('disconnect', async () => {
+      console.log('🔌 Socket Mode disconnected, attempting to reconnect...');
+      setTimeout(() => startSocketModeClient(app), 5000);
+    });
+
+    app.client.on('reconnect', async () => {
+      console.log('🔄 Socket Mode reconnected successfully');
+    });
+
+    // Start Socket Mode with error handling
+    await startSocketModeClient(app);
+    
+    // Start Express server
+    const port = process.env.PORT || 3000;
+    expressApp.listen(port, () => {
+      console.log(`Express server is running on port ${port}`);
+    });
+  } catch (error) {
+    console.error('❌ Fatal error:', error);
+    process.exit(1);
+  }
 })();
