@@ -300,6 +300,67 @@ const handleJiraWebhook = async (req, res, app) => {
       }
     }
 
+    // Check if this is a new issue being created
+    const isNewIssue = webhookData.webhookEvent === 'jira:issue_created';
+    const issueKey = webhookData.issue?.key;
+    const currentStatus = webhookData.issue?.fields?.status?.name;
+
+    // Log the event details for debugging
+    console.log('📦 Webhook Event Details:', {
+      event: webhookData.webhookEvent,
+      issueKey,
+      currentStatus,
+      isNewIssue
+    });
+
+    // If it's a new issue with "New Request" status
+    if (isNewIssue && currentStatus === 'New Request') {
+      console.log(`📢 New Request issue created: ${issueKey}`);
+      
+      try {
+        // Send notification to the specific channel
+        await app.client.chat.postMessage({
+          token: process.env.SLACK_BOT_TOKEN,
+          channel: NEW_REQUEST_NOTIFICATION_CHANNEL,
+          text: `New Campaign Request Created: ${issueKey}`,
+          blocks: [
+            {
+              type: "header",
+              text: {
+                type: "plain_text",
+                text: "🆕 New Campaign Request Created",
+                emoji: true
+              }
+            },
+            {
+              type: "section",
+              fields: [
+                {
+                  type: "mrkdwn",
+                  text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Summary:*\n${webhookData.issue.fields.summary || 'No summary'}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Created By:*\n${webhookData.user?.displayName || 'Unknown'}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Created At:*\n${new Date().toLocaleString()}`
+                }
+              ]
+            }
+          ]
+        });
+        console.log('✅ New Request notification sent successfully');
+      } catch (error) {
+        console.error('❌ Error sending New Request notification:', error);
+      }
+    }
+
     res.status(200).json({ status: 'success' });
   } catch (error) {
     console.error('❌ Error processing webhook:', {
