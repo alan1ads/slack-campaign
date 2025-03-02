@@ -1,14 +1,64 @@
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 // Add timer alerts channel constant
 const TIMER_ALERTS_CHANNEL = 'C08F7C8RCV7';
 
-// Only track active status changes
+// Define the path for the tracking data file
+const TRACKING_FILE_PATH = path.join(__dirname, '../../data/tracking.json');
+
+// Ensure the data directory exists
+if (!fs.existsSync(path.dirname(TRACKING_FILE_PATH))) {
+  fs.mkdirSync(path.dirname(TRACKING_FILE_PATH), { recursive: true });
+}
+
+// Load tracking data from file or initialize if doesn't exist
 let activeTracking = {
   status: {},      // For customfield_10281 (Status)
   campaign: {}     // For status field (Campaign Status)
 };
+
+// Function to load tracking data from file
+const loadTrackingData = () => {
+  try {
+    if (fs.existsSync(TRACKING_FILE_PATH)) {
+      const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
+      const parsed = JSON.parse(data);
+      // Convert date strings back to Date objects
+      Object.values(parsed.status).forEach(item => {
+        item.startTime = new Date(item.startTime);
+        if (item.lastAlertTime) {
+          item.lastAlertTime = new Date(item.lastAlertTime);
+        }
+      });
+      Object.values(parsed.campaign).forEach(item => {
+        item.startTime = new Date(item.startTime);
+        if (item.lastAlertTime) {
+          item.lastAlertTime = new Date(item.lastAlertTime);
+        }
+      });
+      activeTracking = parsed;
+      console.log('📥 Loaded tracking data from file');
+    }
+  } catch (error) {
+    console.error('❌ Error loading tracking data:', error);
+  }
+};
+
+// Function to save tracking data to file
+const saveTrackingData = () => {
+  try {
+    fs.writeFileSync(TRACKING_FILE_PATH, JSON.stringify(activeTracking, null, 2));
+    console.log('💾 Saved tracking data to file');
+  } catch (error) {
+    console.error('❌ Error saving tracking data:', error);
+  }
+};
+
+// Load tracking data on startup
+loadTrackingData();
 
 // Status thresholds (customfield_10281) - these are fixed
 const STATUS_THRESHOLDS = {
@@ -96,7 +146,7 @@ const getThresholdMs = (statusType, statusValue, issue) => {
   }
 };
 
-// Start tracking when we get a webhook status change
+// Modify startTracking to save data after tracking starts
 const startTracking = (issueKey, statusType, statusValue, issue) => {
   const thresholdMs = getThresholdMs(statusType, statusValue, issue);
   
@@ -109,9 +159,13 @@ const startTracking = (issueKey, statusType, statusValue, issue) => {
   activeTracking[statusType][issueKey] = {
     status: statusValue,
     startTime: new Date(),
-    lastAlertTime: null
+    lastAlertTime: null,
+    issue: issue // Store issue data if needed
   };
   console.log(`⏱️ Started tracking ${issueKey} ${statusType}: ${statusValue}`);
+  
+  // Save tracking data after updating
+  saveTrackingData();
 };
 
 // Add a function to check if issue exists
@@ -148,10 +202,11 @@ const ensureChannelAccess = async (app, channelId) => {
   }
 };
 
-// Check durations and alert if needed
+// Modify checkStatusAlerts to save data after sending alerts
 const checkStatusAlerts = async (app) => {
   try {
     const now = new Date();
+    let dataChanged = false;
     
     console.log('🔍 Checking tracked statuses:', {
       campaign: Object.keys(activeTracking.campaign),
@@ -211,6 +266,7 @@ const checkStatusAlerts = async (app) => {
 
         // After sending alert, update lastAlertTime
         activeTracking.status[issueKey].lastAlertTime = now;
+        dataChanged = true;
       }
     }
 
@@ -275,20 +331,28 @@ const checkStatusAlerts = async (app) => {
 
         // After sending alert, update lastAlertTime
         activeTracking.campaign[issueKey].lastAlertTime = now;
+        dataChanged = true;
       }
+    }
+
+    // If any data changed, save it
+    if (dataChanged) {
+      saveTrackingData();
     }
   } catch (error) {
     console.error('Error checking status alerts:', error);
   }
 };
 
-// Clear tracking when status changes or on startup
+// Modify clearTracking to save data after clearing
 const clearTracking = (issueKey, statusType) => {
   if (issueKey && statusType) {
     // Clear specific issue tracking
     if (activeTracking[statusType][issueKey]) {
       delete activeTracking[statusType][issueKey];
       console.log(`🧹 Cleared ${statusType} tracking for ${issueKey}`);
+      // Save tracking data after clearing
+      saveTrackingData();
     }
   } else {
     // Clear all tracking (on startup)
@@ -297,6 +361,8 @@ const clearTracking = (issueKey, statusType) => {
       campaign: {}
     };
     console.log('🧹 Cleared all status tracking');
+    // Save tracking data after clearing all
+    saveTrackingData();
   }
 };
 
@@ -311,11 +377,13 @@ const updateCampaignThreshold = (status, minutes) => {
   }
 };
 
+// Export the functions
 module.exports = {
   startTracking,
   clearTracking,
   checkStatusAlerts,
   activeTracking,
   updateCampaignThreshold,
-  ensureChannelAccess
+  ensureChannelAccess,
+  loadTrackingData // Export this so it can be called on app startup if needed
 }; 
