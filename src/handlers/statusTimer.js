@@ -47,18 +47,234 @@ const releaseLock = () => {
   }
 };
 
-// Function to load tracking data from file
-const loadTrackingData = () => {
+// NEW FUNCTION: Load tracking data from Jira
+const loadTrackingDataFromJira = async (app) => {
+  console.log('🔄 Initializing tracking data from Jira...');
+  
   try {
-    console.log('📂 Loading tracking data...');
-    console.log('📂 Current directory:', __dirname);
+    // First try to load local data as a backup/starting point
+    loadTrackingDataFromFile();
+    
+    // Get all active issues from Jira
+    console.log('🔍 Fetching active issues from Jira...');
+    const response = await axios({
+      method: 'GET',
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/search`,
+      auth: {
+        username: process.env.JIRA_EMAIL,
+        password: process.env.JIRA_API_TOKEN
+      },
+      params: {
+        jql: 'project = AS AND status not in ("Phase Complete", "Failed")',
+        maxResults: 200,
+        fields: 'key,status,summary,created,updated,customfield_10281,assignee'
+      }
+    });
+    
+    if (!response.data || !response.data.issues) {
+      console.log('⚠️ No active issues found in Jira or could not retrieve data');
+      return;
+    }
+    
+    console.log(`🔍 Found ${response.data.issues.length} active issues to track`);
+    
+    // Track issues we've processed to detect any that need to be removed
+    const processedIssues = {
+      status: new Set(),
+      campaign: new Set()
+    };
+    
+    // Process each issue and set up tracking
+    for (const issue of response.data.issues) {
+      const issueKey = issue.key;
+      const statusValue = issue.fields.customfield_10281?.value; // Status field
+      const campaignStatus = issue.fields.status.name;  // Campaign Status field
+      const assignee = issue.fields.assignee;
+      
+      console.log(`📋 Processing issue ${issueKey} - Status: ${statusValue || 'Not set'}, Campaign: ${campaignStatus}`);
+      
+      try {
+        // Get issue history to determine how long it's been in current status
+        const historyResponse = await axios({
+          method: 'GET',
+          url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}/changelog`,
+          auth: {
+            username: process.env.JIRA_EMAIL,
+            password: process.env.JIRA_API_TOKEN
+          }
+        });
+        
+        // Find the most recent status change for both fields
+        let statusChangeTime = new Date(issue.fields.created);
+        let campaignStatusChangeTime = new Date(issue.fields.created);
+        
+        // Get last alert times from existing tracking (if any)
+        let statusLastAlertTime = activeTracking.status[issueKey]?.lastAlertTime || null;
+        let campaignLastAlertTime = activeTracking.campaign[issueKey]?.lastAlertTime || null;
+        
+        if (historyResponse.data && historyResponse.data.values) {
+          // Process changelog for status changes
+          for (const history of historyResponse.data.values) {
+            const created = new Date(history.created);
+            
+            for (const item of history.items) {
+              // Check for Status field changes
+              if (item.fieldId === 'customfield_10281' && item.toString === statusValue) {
+                if (created > statusChangeTime) {
+                  statusChangeTime = created;
+                }
+              }
+              
+              // Check for Campaign Status changes
+              if (item.field === 'status' && item.toString === campaignStatus) {
+                if (created > campaignStatusChangeTime) {
+                  campaignStatusChangeTime = created;
+                }
+              }
+            }
+          }
+        }
+        
+        // Track the Status if set
+        if (statusValue) {
+          const thresholdMs = getThresholdMs('status', statusValue, issue);
+          if (thresholdMs !== null) {
+            // Add to processed set
+            processedIssues.status.add(issueKey);
+            
+            // Update tracking with accurate history-based timing
+            activeTracking.status[issueKey] = {
+              status: statusValue,
+              startTime: statusChangeTime,
+              lastAlertTime: statusLastAlertTime,
+              issue: {
+                key: issue.key,
+                fields: {
+                  summary: issue.fields.summary,
+                  assignee: issue.fields.assignee
+                }
+              }
+            };
+            console.log(`⏱️ Tracking Status for ${issueKey}: ${statusValue} (since ${statusChangeTime.toISOString()})`);
+          }
+        }
+        
+        // Track the Campaign Status
+        const campaignThresholdMs = getThresholdMs('campaign', campaignStatus, issue);
+        
+        // Special handling for NEW REQUEST - only track if has assignee
+        const isNewRequest = campaignStatus.toUpperCase() === 'NEW REQUEST';
+        const shouldTrackCampaign = 
+          (isNewRequest && assignee !== null) || 
+          (!isNewRequest && campaignThresholdMs !== null);
+        
+        if (shouldTrackCampaign) {
+          // Add to processed set
+          processedIssues.campaign.add(issueKey);
+          
+          activeTracking.campaign[issueKey] = {
+            status: campaignStatus,
+            startTime: campaignStatusChangeTime,
+            lastAlertTime: campaignLastAlertTime,
+            issue: {
+              key: issue.key,
+              fields: {
+                summary: issue.fields.summary,
+                assignee: issue.fields.assignee
+              }
+            }
+          };
+          console.log(`⏱️ Tracking Campaign Status for ${issueKey}: ${campaignStatus} (since ${campaignStatusChangeTime.toISOString()})`);
+        }
+        
+      } catch (historyError) {
+        console.error(`❌ Error retrieving history for ${issueKey}:`, historyError.message);
+        
+        // Use existing tracking data if available, otherwise use created time
+        if (statusValue) {
+          processedIssues.status.add(issueKey);
+          
+          activeTracking.status[issueKey] = activeTracking.status[issueKey] || {
+            status: statusValue,
+            startTime: new Date(issue.fields.created),
+            lastAlertTime: null,
+            issue: {
+              key: issue.key,
+              fields: {
+                summary: issue.fields.summary,
+                assignee: issue.fields.assignee
+              }
+            }
+          };
+        }
+        
+        if (campaignStatus && campaignStatus.toUpperCase() !== 'PHASE COMPLETE' && campaignStatus.toUpperCase() !== 'FAILED') {
+          processedIssues.campaign.add(issueKey);
+          
+          activeTracking.campaign[issueKey] = activeTracking.campaign[issueKey] || {
+            status: campaignStatus,
+            startTime: new Date(issue.fields.created),
+            lastAlertTime: null,
+            issue: {
+              key: issue.key,
+              fields: {
+                summary: issue.fields.summary,
+                assignee: issue.fields.assignee
+              }
+            }
+          };
+        }
+      }
+    }
+    
+    // Remove any issues that are no longer active
+    for (const issueKey of Object.keys(activeTracking.status)) {
+      if (!processedIssues.status.has(issueKey)) {
+        console.log(`🧹 Removing stale status tracking for ${issueKey}`);
+        delete activeTracking.status[issueKey];
+      }
+    }
+    
+    for (const issueKey of Object.keys(activeTracking.campaign)) {
+      if (!processedIssues.campaign.has(issueKey)) {
+        console.log(`🧹 Removing stale campaign tracking for ${issueKey}`);
+        delete activeTracking.campaign[issueKey];
+      }
+    }
+    
+    // Save the tracking data to file
+    saveTrackingData();
+    
+    console.log('✅ Jira tracking data initialized successfully:', {
+      statusCount: Object.keys(activeTracking.status).length,
+      campaignCount: Object.keys(activeTracking.campaign).length,
+      statuses: Object.keys(activeTracking.status),
+      campaigns: Object.keys(activeTracking.campaign)
+    });
+    
+  } catch (error) {
+    console.error('❌ Error initializing tracking data from Jira:', error.message);
+    // If Jira sync fails, fall back to local file
+    console.log('⚠️ Falling back to local tracking data');
+    loadTrackingDataFromFile();
+  }
+};
+
+// Modified original function renamed to loadTrackingDataFromFile (as backup)
+const loadTrackingDataFromFile = () => {
+  try {
+    console.log('📂 Loading tracking data from file...');
     console.log('📂 Data directory path:', dataDir);
     console.log('📂 Tracking file path:', TRACKING_FILE_PATH);
     
     // Create data directory if it doesn't exist
     if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-      console.log('📁 Created data directory at:', dataDir);
+      try {
+        fs.mkdirSync(dataDir, { recursive: true });
+        console.log('📁 Created data directory at:', dataDir);
+      } catch (dirError) {
+        console.error('❌ Error creating data directory:', dirError);
+      }
     }
 
     // Try to acquire lock
@@ -68,12 +284,6 @@ const loadTrackingData = () => {
     }
 
     try {
-      // Initialize tracking data structure
-      activeTracking = {
-        status: {},
-        campaign: {}
-      };
-
       // Load existing data if file exists
       if (fs.existsSync(TRACKING_FILE_PATH)) {
         console.log('📄 Found tracking file at:', TRACKING_FILE_PATH);
@@ -84,21 +294,17 @@ const loadTrackingData = () => {
         });
 
         const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
-        console.log('📄 Raw file contents:', data);
         
         if (!data.trim()) {
           console.log('⚠️ Tracking file is empty, initializing new data');
-          saveTrackingData();
           return;
         }
 
         try {
           const parsed = JSON.parse(data);
-          console.log('📄 Parsed tracking data:', parsed);
           
           if (!parsed || typeof parsed !== 'object') {
             console.log('⚠️ Invalid tracking data format, initializing new data');
-            saveTrackingData();
             return;
           }
 
@@ -128,26 +334,21 @@ const loadTrackingData = () => {
             });
           }
 
-          console.log('📥 Loaded tracking data successfully:', {
+          console.log('📥 Loaded tracking data from file successfully:', {
             statusCount: Object.keys(activeTracking.status).length,
-            campaignCount: Object.keys(activeTracking.campaign).length,
-            campaigns: Object.keys(activeTracking.campaign),
-            statuses: Object.keys(activeTracking.status)
+            campaignCount: Object.keys(activeTracking.campaign).length
           });
         } catch (parseError) {
           console.error('❌ Error parsing tracking data:', parseError);
-          // Initialize new data if parsing fails
-          saveTrackingData();
         }
       } else {
-        console.log('📝 No existing tracking file found, creating new file at:', TRACKING_FILE_PATH);
-        saveTrackingData();
+        console.log('📝 No existing tracking file found');
       }
     } finally {
       releaseLock();
     }
   } catch (error) {
-    console.error('❌ Error in loadTrackingData:', error);
+    console.error('❌ Error in loadTrackingDataFromFile:', error);
     releaseLock();
   }
 };
@@ -170,8 +371,13 @@ const saveTrackingData = () => {
     try {
       // Ensure the directory exists
       if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
-        console.log('📁 Created data directory for saving at:', dataDir);
+        try {
+          fs.mkdirSync(dataDir, { recursive: true });
+          console.log('📁 Created data directory for saving at:', dataDir);
+        } catch (dirError) {
+          console.error('❌ Error creating data directory:', dirError);
+          // Continue anyway - we'll try to save the file
+        }
       }
 
       // Prepare data for saving
@@ -202,33 +408,43 @@ const saveTrackingData = () => {
         }
       });
 
-      // Write to temporary file first
-      const tempPath = `${TRACKING_FILE_PATH}.tmp`;
-      fs.writeFileSync(tempPath, JSON.stringify(dataToSave, null, 2), { encoding: 'utf8', flag: 'w' });
+      try {
+        // Write to temporary file first
+        const tempPath = `${TRACKING_FILE_PATH}.tmp`;
+        fs.writeFileSync(tempPath, JSON.stringify(dataToSave, null, 2), { encoding: 'utf8', flag: 'w' });
 
-      // Verify the temporary file was written correctly
-      const tempData = fs.readFileSync(tempPath, 'utf8');
-      const tempParsed = JSON.parse(tempData);
-      
-      if (!tempParsed || typeof tempParsed !== 'object') {
-        throw new Error('Failed to write valid data to temporary file');
+        // Verify the temporary file was written correctly
+        const tempData = fs.readFileSync(tempPath, 'utf8');
+        const tempParsed = JSON.parse(tempData);
+        
+        if (!tempParsed || typeof tempParsed !== 'object') {
+          throw new Error('Failed to write valid data to temporary file');
+        }
+
+        // Rename temporary file to actual file (atomic operation)
+        fs.renameSync(tempPath, TRACKING_FILE_PATH);
+
+        // Verify the file exists after saving
+        if (!fs.existsSync(TRACKING_FILE_PATH)) {
+          throw new Error('File does not exist after save operation');
+        }
+
+        console.log('💾 Saved tracking data successfully:', {
+          statusCount: Object.keys(dataToSave.status).length,
+          campaignCount: Object.keys(dataToSave.campaign).length,
+          path: TRACKING_FILE_PATH
+        });
+      } catch (writeError) {
+        console.error('❌ Error writing tracking file:', writeError);
+        // If normal save fails, try saving to /tmp as a fallback
+        try {
+          const tmpPath = '/tmp/tracking.json';
+          fs.writeFileSync(tmpPath, JSON.stringify(dataToSave, null, 2), 'utf8');
+          console.log('💾 Saved tracking data to temporary location:', tmpPath);
+        } catch (tmpError) {
+          console.error('❌ Failed to save tracking data to temporary location:', tmpError);
+        }
       }
-
-      // Rename temporary file to actual file (atomic operation)
-      fs.renameSync(tempPath, TRACKING_FILE_PATH);
-
-      // Verify the file exists after saving
-      if (!fs.existsSync(TRACKING_FILE_PATH)) {
-        throw new Error('File does not exist after save operation');
-      }
-
-      console.log('💾 Saved tracking data successfully:', {
-        statusCount: Object.keys(dataToSave.status).length,
-        campaignCount: Object.keys(dataToSave.campaign).length,
-        campaigns: Object.keys(dataToSave.campaign),
-        statuses: Object.keys(dataToSave.status),
-        path: TRACKING_FILE_PATH
-      });
     } finally {
       releaseLock();
     }
@@ -237,9 +453,6 @@ const saveTrackingData = () => {
     releaseLock();
   }
 };
-
-// Load tracking data on startup and save current state
-loadTrackingData();
 
 // Status thresholds (customfield_10281) - these are fixed
 const STATUS_THRESHOLDS = {
@@ -293,9 +506,6 @@ const fetchCampaignStatusThresholds = async () => {
     console.error('Error fetching campaign statuses:', error);
   }
 };
-
-// Call this on startup
-fetchCampaignStatusThresholds();
 
 // Check if issue has an assignee
 const hasAssignee = (issue) => {
@@ -554,13 +764,120 @@ const updateCampaignThreshold = (status, minutes) => {
   }
 };
 
+// Add function to check status duration for debugging
+const checkStatusDuration = async ({ command, ack, say }) => {
+  await ack();
+  
+  try {
+    const issueKey = command.text.trim();
+    
+    if (!issueKey) {
+      await say("Please provide an issue key: `/check-duration AS-123`");
+      return;
+    }
+    
+    // Get status data
+    const statusData = activeTracking.status[issueKey];
+    const campaignData = activeTracking.campaign[issueKey];
+    
+    const now = new Date();
+    let blocks = [];
+    
+    if (!statusData && !campaignData) {
+      await say(`No tracking data found for issue ${issueKey}`);
+      return;
+    }
+    
+    if (statusData) {
+      const timeInStatus = now - statusData.startTime;
+      const minutesInStatus = Math.round(timeInStatus / 60000);
+      const hourInStatus = (minutesInStatus / 60).toFixed(1);
+      
+      blocks.push({
+        type: "section",
+        fields: [
+          {
+            type: "mrkdwn",
+            text: `*Issue Status:*\n${statusData.status}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Time in Status:*\n${minutesInStatus} minutes (${hourInStatus} hours)`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Started At:*\n${statusData.startTime.toLocaleString()}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Last Alert:*\n${statusData.lastAlertTime ? statusData.lastAlertTime.toLocaleString() : 'No alerts sent'}`
+          }
+        ]
+      });
+    }
+    
+    if (campaignData) {
+      const timeInStatus = now - campaignData.startTime;
+      const minutesInStatus = Math.round(timeInStatus / 60000);
+      const hourInStatus = (minutesInStatus / 60).toFixed(1);
+      
+      blocks.push({
+        type: "divider"
+      });
+      
+      blocks.push({
+        type: "section",
+        fields: [
+          {
+            type: "mrkdwn",
+            text: `*Campaign Status:*\n${campaignData.status}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Time in Status:*\n${minutesInStatus} minutes (${hourInStatus} hours)`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Started At:*\n${campaignData.startTime.toLocaleString()}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Last Alert:*\n${campaignData.lastAlertTime ? campaignData.lastAlertTime.toLocaleString() : 'No alerts sent'}`
+          }
+        ]
+      });
+    }
+    
+    await say({
+      text: `Status duration info for ${issueKey}`,
+      blocks: [
+        {
+          type: "header",
+          text: {
+            type: "plain_text",
+            text: `⏱️ Status Duration for ${issueKey}`,
+            emoji: true
+          }
+        },
+        ...blocks
+      ]
+    });
+    
+  } catch (error) {
+    console.error('Error checking status duration:', error);
+    await say(`Error checking status duration: ${error.message}`);
+  }
+};
+
 // Export the functions
 module.exports = {
   startTracking,
   clearTracking,
   checkStatusAlerts,
+  checkStatusDuration,
   activeTracking,
   updateCampaignThreshold,
   ensureChannelAccess,
-  loadTrackingData // Export this so it can be called on app startup if needed
-}; 
+  loadTrackingData: loadTrackingDataFromFile, // For backward compatibility
+  loadTrackingDataFromJira // Export new Jira-based function
+};

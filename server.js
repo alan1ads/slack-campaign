@@ -12,7 +12,8 @@ const updateCampaignStatus = require('./src/handlers/updateCampaignStatus');
 const checkStatus = require('./src/handlers/checkStatus');
 const searchIssues = require('./src/handlers/searchIssues');
 const reviewStart = require('./src/handlers/reviewStart');
-const { checkStatusAlerts, checkStatusDuration, clearTracking, loadTrackingData } = require('./src/handlers/statusTimer');
+// Update this import to include the new loadTrackingDataFromJira function
+const { checkStatusAlerts, checkStatusDuration, clearTracking, loadTrackingDataFromJira } = require('./src/handlers/statusTimer');
 
 // Import utilities
 const { jira } = require('./src/utils/jiraClient');
@@ -267,12 +268,12 @@ const startSocketModeClient = async (app) => {
   }
 };
 
-// Replace the existing start-up code at the bottom with this:
+// Updated startup code to use Jira-based data loading
 (async () => {
   try {
-    // Load existing tracking data instead of clearing it
-    loadTrackingData();
-
+    // Load tracking data from Jira instead of local file
+    await loadTrackingDataFromJira(app);
+    
     // Set up periodic status checks (every minute)
     setInterval(async () => {
       try {
