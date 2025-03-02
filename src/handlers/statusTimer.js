@@ -67,7 +67,10 @@ const loadTrackingData = () => {
     });
     
     activeTracking = parsed;
-    console.log('📥 Loaded tracking data from file');
+    console.log('📥 Loaded tracking data from file:', {
+      statusCount: Object.keys(parsed.status).length,
+      campaignCount: Object.keys(parsed.campaign).length
+    });
   } catch (error) {
     console.error('❌ Error loading tracking data:', error);
     // Initialize with empty tracking if there's an error
