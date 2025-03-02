@@ -190,14 +190,6 @@ const handleJiraWebhook = async (req, res, app) => {
           const updatedBy = webhookData.user?.displayName || 'Unknown User';
           const summary = webhookData.issue.fields.summary || 'No Summary';
 
-          console.log(`✨ Processing Campaign Status change:`, {
-            issueKey,
-            oldStatus,
-            newStatus,
-            updatedBy,
-            summary
-          });
-
           // Track the Campaign Status change
           clearTracking(issueKey, 'campaign');
           startTracking(issueKey, 'campaign', newStatus, webhookData.issue);
@@ -245,51 +237,6 @@ const handleJiraWebhook = async (req, res, app) => {
             ]
           });
           console.log('✅ Slack notification sent successfully');
-
-          // Check if this is a new "New Request"
-          if (newStatus === 'New Request') {
-            console.log(`📢 New Request created for ${issueKey}`);
-            
-            // Send notification to the specific channel
-            await ensureChannelAccess(app, NEW_REQUEST_NOTIFICATION_CHANNEL);
-            
-            await app.client.chat.postMessage({
-              token: process.env.SLACK_BOT_TOKEN,
-              channel: NEW_REQUEST_NOTIFICATION_CHANNEL,
-              text: `New Campaign Request Created: ${issueKey}`,
-              blocks: [
-                {
-                  type: "header",
-                  text: {
-                    type: "plain_text",
-                    text: "🆕 New Campaign Request Created",
-                    emoji: true
-                  }
-                },
-                {
-                  type: "section",
-                  fields: [
-                    {
-                      type: "mrkdwn",
-                      text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
-                    },
-                    {
-                      type: "mrkdwn",
-                      text: `*Summary:*\n${webhookData.issue.fields.summary || 'No summary'}`
-                    },
-                    {
-                      type: "mrkdwn",
-                      text: `*Created By:*\n${webhookData.user?.displayName || 'Unknown'}`
-                    },
-                    {
-                      type: "mrkdwn",
-                      text: `*Created At:*\n${new Date().toLocaleString()}`
-                    }
-                  ]
-                }
-              ]
-            });
-          }
         } catch (error) {
           console.error('❌ Error:', error);
         }
@@ -313,20 +260,25 @@ const handleJiraWebhook = async (req, res, app) => {
       }
     }
 
-    // Handle new issue creation
+    // Handle new issue creation - ONLY send notification if it's a new issue with "New Request" status
     if (webhookData.webhookEvent === 'jira:issue_created') {
       const issueKey = webhookData.issue.key;
       const status = webhookData.issue.fields.status.name;
       
-      console.log(`📦 New Issue Created - ${issueKey} with status: ${status}`);
-      
-      // Check specifically for NEW REQUEST (matching the exact status from statusTimer.js)
+      // Only log and notify if it's a New Request
       if (status.toUpperCase() === 'NEW REQUEST') {
+        console.log(`📦 New Issue Created - ${issueKey} with status: ${status}`);
         console.log(`🆕 Sending New Request notification for ${issueKey} to channel ${NEW_REQUEST_NOTIFICATION_CHANNEL}`);
         
         try {
-          // Ensure channel access before sending
-          await ensureChannelAccess(app, NEW_REQUEST_NOTIFICATION_CHANNEL);
+          // Ignore the "already_in_channel" warning
+          try {
+            await ensureChannelAccess(app, NEW_REQUEST_NOTIFICATION_CHANNEL);
+          } catch (error) {
+            if (!error.message.includes('already_in_channel')) {
+              throw error;
+            }
+          }
           
           await app.client.chat.postMessage({
             token: process.env.SLACK_BOT_TOKEN,
@@ -374,10 +326,7 @@ const handleJiraWebhook = async (req, res, app) => {
 
     res.status(200).json({ status: 'success' });
   } catch (error) {
-    console.error('❌ Error processing webhook:', {
-      message: error.message,
-      stack: error.stack
-    });
+    console.error('❌ Error processing webhook:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
