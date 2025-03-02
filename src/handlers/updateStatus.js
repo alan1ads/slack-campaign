@@ -15,6 +15,9 @@ const STATUS_MAP = {
 // Replace the hardcoded channel constant with environment variable
 const NEW_REQUEST_NOTIFICATION_CHANNEL = process.env.SLACK_NEW_REQUEST_CHANNEL;
 
+// Add a map to track initial status changes
+const newIssueTracker = new Map();
+
 // Helper function to send Slack notification
 const sendSlackNotification = async (app, issueKey, oldStatus, newStatus, updatedBy) => {
   try {
@@ -89,6 +92,96 @@ const handleJiraWebhook = async (req, res, app) => {
       changeItems: webhookData.changelog?.items?.length || 0
     });
 
+    const issueKey = webhookData.issue.key;
+    const currentStatus = webhookData.issue.fields.status.name;
+    const isNewRequest = currentStatus.toUpperCase() === 'NEW REQUEST';
+
+    // Handle new issue creation
+    if (webhookData.webhookEvent === 'jira:issue_created') {
+      console.log(`📦 New Issue Created - ${issueKey} with initial status: ${currentStatus}`);
+      
+      // Start tracking this new issue
+      newIssueTracker.set(issueKey, {
+        initialStatus: currentStatus,
+        createdAt: new Date(),
+        notified: false
+      });
+
+      // Set a timeout to check if the issue is still in New Request after a short delay
+      setTimeout(async () => {
+        const tracking = newIssueTracker.get(issueKey);
+        if (tracking && !tracking.notified && isNewRequest) {
+          try {
+            // Double check the current status
+            const response = await axios({
+              method: 'GET',
+              url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}`,
+              auth: {
+                username: process.env.JIRA_EMAIL,
+                password: process.env.JIRA_API_TOKEN
+              }
+            });
+
+            const currentStatus = response.data.fields.status.name;
+            if (currentStatus.toUpperCase() === 'NEW REQUEST') {
+              console.log(`🆕 Sending notification for confirmed New Request: ${issueKey}`);
+              
+              try {
+                await ensureChannelAccess(app, NEW_REQUEST_NOTIFICATION_CHANNEL);
+              } catch (error) {
+                if (!error.message.includes('already_in_channel')) {
+                  throw error;
+                }
+              }
+
+              await app.client.chat.postMessage({
+                token: process.env.SLACK_BOT_TOKEN,
+                channel: NEW_REQUEST_NOTIFICATION_CHANNEL,
+                text: `New Campaign Request Created: ${issueKey}`,
+                blocks: [
+                  {
+                    type: "header",
+                    text: {
+                      type: "plain_text",
+                      text: "🆕 New Campaign Request Created",
+                      emoji: true
+                    }
+                  },
+                  {
+                    type: "section",
+                    fields: [
+                      {
+                        type: "mrkdwn",
+                        text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                      },
+                      {
+                        type: "mrkdwn",
+                        text: `*Summary:*\n${webhookData.issue.fields.summary || 'No summary'}`
+                      },
+                      {
+                        type: "mrkdwn",
+                        text: `*Created By:*\n${webhookData.issue.fields.creator.displayName || 'Unknown'}`
+                      },
+                      {
+                        type: "mrkdwn",
+                        text: `*Created At:*\n${new Date(webhookData.issue.fields.created).toLocaleString()}`
+                      }
+                    ]
+                  }
+                ]
+              });
+              tracking.notified = true;
+              console.log('✅ New Request notification sent successfully');
+            }
+          } catch (error) {
+            console.error('❌ Error sending New Request notification:', error);
+          }
+        }
+        // Clean up the tracker after we're done
+        newIssueTracker.delete(issueKey);
+      }, 2000); // Wait 2 seconds to check the final status
+    }
+
     // Check for Status changes in both standard and custom fields
     if (webhookData.changelog?.items) {
       // Handle Status changes (customfield_10281)
@@ -115,7 +208,6 @@ const handleJiraWebhook = async (req, res, app) => {
       // Process Status changes
       for (const change of statusChanges) {
         try {
-          const issueKey = webhookData.issue.key;
           const oldStatus = change.fromString;
           const newStatus = change.toString;
           const updatedBy = webhookData.user?.displayName || 'Unknown User';
@@ -184,7 +276,6 @@ const handleJiraWebhook = async (req, res, app) => {
       // Process Campaign Status changes
       for (const change of campaignStatusChanges) {
         try {
-          const issueKey = webhookData.issue.key;
           const oldStatus = change.fromString;
           const newStatus = change.toString;
           const updatedBy = webhookData.user?.displayName || 'Unknown User';
@@ -245,7 +336,6 @@ const handleJiraWebhook = async (req, res, app) => {
       // Process Assignee changes
       for (const change of assigneeChanges) {
         try {
-          const issueKey = webhookData.issue.key;
           const currentStatus = webhookData.issue.fields.status.name;
 
           // If it's a NEW REQUEST and someone was assigned, start tracking
@@ -256,69 +346,6 @@ const handleJiraWebhook = async (req, res, app) => {
           }
         } catch (error) {
           console.error('❌ Error handling assignee change:', error);
-        }
-      }
-    }
-
-    // Handle new issue creation - ONLY send notification if it's a new issue with "New Request" status
-    if (webhookData.webhookEvent === 'jira:issue_created') {
-      const issueKey = webhookData.issue.key;
-      const status = webhookData.issue.fields.status.name;
-      
-      // Only log and notify if it's a New Request
-      if (status.toUpperCase() === 'NEW REQUEST') {
-        console.log(`📦 New Issue Created - ${issueKey} with initial status: ${status}`);
-        
-        try {
-          // Ignore the "already_in_channel" warning
-          try {
-            await ensureChannelAccess(app, NEW_REQUEST_NOTIFICATION_CHANNEL);
-          } catch (error) {
-            if (!error.message.includes('already_in_channel')) {
-              throw error;
-            }
-          }
-          
-          await app.client.chat.postMessage({
-            token: process.env.SLACK_BOT_TOKEN,
-            channel: NEW_REQUEST_NOTIFICATION_CHANNEL,
-            text: `New Campaign Request Created: ${issueKey}`,
-            blocks: [
-              {
-                type: "header",
-                text: {
-                  type: "plain_text",
-                  text: "🆕 New Campaign Request Created",
-                  emoji: true
-                }
-              },
-              {
-                type: "section",
-                fields: [
-                  {
-                    type: "mrkdwn",
-                    text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
-                  },
-                  {
-                    type: "mrkdwn",
-                    text: `*Summary:*\n${webhookData.issue.fields.summary || 'No summary'}`
-                  },
-                  {
-                    type: "mrkdwn",
-                    text: `*Created By:*\n${webhookData.issue.fields.creator.displayName || 'Unknown'}`
-                  },
-                  {
-                    type: "mrkdwn",
-                    text: `*Created At:*\n${new Date(webhookData.issue.fields.created).toLocaleString()}`
-                  }
-                ]
-              }
-            ]
-          });
-          console.log('✅ New Request notification sent successfully to new requests channel');
-        } catch (error) {
-          console.error('❌ Error sending New Request notification:', error);
-          console.error('Error details:', error);
         }
       }
     }
