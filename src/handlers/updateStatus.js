@@ -367,7 +367,7 @@ const handleJiraWebhook = async (req, res, app) => {
           console.log('✅ New Request notification sent successfully to new requests channel');
         } catch (error) {
           console.error('❌ Error sending New Request notification:', error);
-          console.error('Error details:', error.response || error);
+          console.error('Error details:', error);
         }
       }
     }

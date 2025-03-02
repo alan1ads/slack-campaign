@@ -316,5 +316,6 @@ module.exports = {
   clearTracking,
   checkStatusAlerts,
   activeTracking,
-  updateCampaignThreshold
+  updateCampaignThreshold,
+  ensureChannelAccess
 }; 
