@@ -51,6 +51,9 @@ const releaseLock = () => {
 const loadTrackingData = () => {
   try {
     console.log('📂 Loading tracking data...');
+    console.log('📂 Current directory:', __dirname);
+    console.log('📂 Data directory path:', dataDir);
+    console.log('📂 Tracking file path:', TRACKING_FILE_PATH);
     
     // Create data directory if it doesn't exist
     if (!fs.existsSync(dataDir)) {
@@ -65,14 +68,27 @@ const loadTrackingData = () => {
     }
 
     try {
+      // Initialize tracking data structure
+      activeTracking = {
+        status: {},
+        campaign: {}
+      };
+
       // Load existing data if file exists
       if (fs.existsSync(TRACKING_FILE_PATH)) {
         console.log('📄 Found tracking file at:', TRACKING_FILE_PATH);
+        const fileStats = fs.statSync(TRACKING_FILE_PATH);
+        console.log('📄 File stats:', {
+          size: fileStats.size,
+          modified: fileStats.mtime
+        });
+
         const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
         console.log('📄 Raw file contents:', data);
         
         if (!data.trim()) {
-          console.log('⚠️ Tracking file is empty');
+          console.log('⚠️ Tracking file is empty, initializing new data');
+          saveTrackingData();
           return;
         }
 
@@ -81,12 +97,13 @@ const loadTrackingData = () => {
           console.log('📄 Parsed tracking data:', parsed);
           
           if (!parsed || typeof parsed !== 'object') {
-            console.log('⚠️ Invalid tracking data format');
+            console.log('⚠️ Invalid tracking data format, initializing new data');
+            saveTrackingData();
             return;
           }
 
-          // Initialize or merge status data
-          if (parsed.status) {
+          // Process status data
+          if (parsed.status && typeof parsed.status === 'object') {
             Object.entries(parsed.status).forEach(([key, item]) => {
               if (item && typeof item === 'object') {
                 activeTracking.status[key] = {
@@ -98,8 +115,8 @@ const loadTrackingData = () => {
             });
           }
 
-          // Initialize or merge campaign data
-          if (parsed.campaign) {
+          // Process campaign data
+          if (parsed.campaign && typeof parsed.campaign === 'object') {
             Object.entries(parsed.campaign).forEach(([key, item]) => {
               if (item && typeof item === 'object') {
                 activeTracking.campaign[key] = {
@@ -119,16 +136,16 @@ const loadTrackingData = () => {
           });
         } catch (parseError) {
           console.error('❌ Error parsing tracking data:', parseError);
+          // Initialize new data if parsing fails
+          saveTrackingData();
         }
       } else {
-        console.log('📝 No existing tracking file found at:', TRACKING_FILE_PATH);
+        console.log('📝 No existing tracking file found, creating new file at:', TRACKING_FILE_PATH);
+        saveTrackingData();
       }
     } finally {
       releaseLock();
     }
-
-    // Save current state to ensure file exists and is up to date
-    saveTrackingData();
   } catch (error) {
     console.error('❌ Error in loadTrackingData:', error);
     releaseLock();
@@ -140,7 +157,8 @@ const saveTrackingData = () => {
   try {
     console.log('💾 Attempting to save tracking data:', {
       currentStatus: Object.keys(activeTracking.status),
-      currentCampaigns: Object.keys(activeTracking.campaign)
+      currentCampaigns: Object.keys(activeTracking.campaign),
+      path: TRACKING_FILE_PATH
     });
 
     // Try to acquire lock
@@ -186,10 +204,23 @@ const saveTrackingData = () => {
 
       // Write to temporary file first
       const tempPath = `${TRACKING_FILE_PATH}.tmp`;
-      fs.writeFileSync(tempPath, JSON.stringify(dataToSave, null, 2));
+      fs.writeFileSync(tempPath, JSON.stringify(dataToSave, null, 2), { encoding: 'utf8', flag: 'w' });
+
+      // Verify the temporary file was written correctly
+      const tempData = fs.readFileSync(tempPath, 'utf8');
+      const tempParsed = JSON.parse(tempData);
+      
+      if (!tempParsed || typeof tempParsed !== 'object') {
+        throw new Error('Failed to write valid data to temporary file');
+      }
 
       // Rename temporary file to actual file (atomic operation)
       fs.renameSync(tempPath, TRACKING_FILE_PATH);
+
+      // Verify the file exists after saving
+      if (!fs.existsSync(TRACKING_FILE_PATH)) {
+        throw new Error('File does not exist after save operation');
+      }
 
       console.log('💾 Saved tracking data successfully:', {
         statusCount: Object.keys(dataToSave.status).length,
