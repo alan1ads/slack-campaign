@@ -195,7 +195,7 @@ const handleJiraWebhook = async (req, res, app) => {
           startTracking(issueKey, 'campaign', newStatus, webhookData.issue);
           console.log(`🕒 Started tracking Campaign Status for ${issueKey}: ${newStatus}`);
 
-          // Send Slack notification for Campaign Status change
+          // Send Slack notification for Campaign Status change (but not for New Request)
           await app.client.chat.postMessage({
             token: process.env.SLACK_BOT_TOKEN,
             channel: process.env.SLACK_NOTIFICATION_CHANNEL,
@@ -267,8 +267,7 @@ const handleJiraWebhook = async (req, res, app) => {
       
       // Only log and notify if it's a New Request
       if (status.toUpperCase() === 'NEW REQUEST') {
-        console.log(`📦 New Issue Created - ${issueKey} with status: ${status}`);
-        console.log(`🆕 Sending New Request notification for ${issueKey} to channel ${NEW_REQUEST_NOTIFICATION_CHANNEL}`);
+        console.log(`📦 New Issue Created - ${issueKey} with initial status: ${status}`);
         
         try {
           // Ignore the "already_in_channel" warning
