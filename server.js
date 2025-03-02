@@ -12,7 +12,7 @@ const updateCampaignStatus = require('./src/handlers/updateCampaignStatus');
 const checkStatus = require('./src/handlers/checkStatus');
 const searchIssues = require('./src/handlers/searchIssues');
 const reviewStart = require('./src/handlers/reviewStart');
-const { checkStatusAlerts, checkStatusDuration, clearTracking } = require('./src/handlers/statusTimer');
+const { checkStatusAlerts, checkStatusDuration, clearTracking, loadTrackingData } = require('./src/handlers/statusTimer');
 
 // Import utilities
 const { jira } = require('./src/utils/jiraClient');
@@ -270,8 +270,8 @@ const startSocketModeClient = async (app) => {
 // Replace the existing start-up code at the bottom with this:
 (async () => {
   try {
-    // Clear any existing tracking on startup
-    clearTracking();
+    // Load existing tracking data instead of clearing it
+    loadTrackingData();
 
     // Set up periodic status checks (every minute)
     setInterval(async () => {

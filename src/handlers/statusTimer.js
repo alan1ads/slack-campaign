@@ -23,27 +23,59 @@ let activeTracking = {
 // Function to load tracking data from file
 const loadTrackingData = () => {
   try {
-    if (fs.existsSync(TRACKING_FILE_PATH)) {
-      const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
-      const parsed = JSON.parse(data);
-      // Convert date strings back to Date objects
-      Object.values(parsed.status).forEach(item => {
-        item.startTime = new Date(item.startTime);
-        if (item.lastAlertTime) {
-          item.lastAlertTime = new Date(item.lastAlertTime);
-        }
-      });
-      Object.values(parsed.campaign).forEach(item => {
-        item.startTime = new Date(item.startTime);
-        if (item.lastAlertTime) {
-          item.lastAlertTime = new Date(item.lastAlertTime);
-        }
-      });
-      activeTracking = parsed;
-      console.log('📥 Loaded tracking data from file');
+    // Create data directory if it doesn't exist
+    if (!fs.existsSync(path.dirname(TRACKING_FILE_PATH))) {
+      fs.mkdirSync(path.dirname(TRACKING_FILE_PATH), { recursive: true });
     }
+
+    // Create empty tracking file if it doesn't exist
+    if (!fs.existsSync(TRACKING_FILE_PATH)) {
+      fs.writeFileSync(TRACKING_FILE_PATH, JSON.stringify({
+        status: {},
+        campaign: {}
+      }, null, 2));
+      console.log('📝 Created new tracking data file');
+      return;
+    }
+
+    const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
+    const parsed = JSON.parse(data);
+    
+    // Ensure the parsed data has the correct structure
+    if (!parsed.status || !parsed.campaign) {
+      console.log('⚠️ Invalid tracking data structure, initializing new tracking data');
+      activeTracking = {
+        status: {},
+        campaign: {}
+      };
+      saveTrackingData();
+      return;
+    }
+
+    // Convert date strings back to Date objects
+    Object.values(parsed.status).forEach(item => {
+      item.startTime = new Date(item.startTime);
+      if (item.lastAlertTime) {
+        item.lastAlertTime = new Date(item.lastAlertTime);
+      }
+    });
+    Object.values(parsed.campaign).forEach(item => {
+      item.startTime = new Date(item.startTime);
+      if (item.lastAlertTime) {
+        item.lastAlertTime = new Date(item.lastAlertTime);
+      }
+    });
+    
+    activeTracking = parsed;
+    console.log('📥 Loaded tracking data from file');
   } catch (error) {
     console.error('❌ Error loading tracking data:', error);
+    // Initialize with empty tracking if there's an error
+    activeTracking = {
+      status: {},
+      campaign: {}
+    };
+    saveTrackingData();
   }
 };
 
