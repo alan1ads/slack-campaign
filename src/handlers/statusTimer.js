@@ -16,10 +16,8 @@ const dataDir = process.env.RENDER ?
   '/opt/render/project/src/data' : 
   path.join(__dirname, '../../data');
 
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-  console.log('📁 Created data directory at:', dataDir);
-}
+// Add lock file path
+const LOCK_FILE_PATH = path.join(dataDir, '.lock');
 
 // Load tracking data from file or initialize if doesn't exist
 let activeTracking = {
@@ -27,10 +25,32 @@ let activeTracking = {
   campaign: {}     // For status field (Campaign Status)
 };
 
+// Function to acquire lock
+const acquireLock = () => {
+  try {
+    fs.writeFileSync(LOCK_FILE_PATH, String(process.pid));
+    return true;
+  } catch (error) {
+    console.error('Failed to acquire lock:', error);
+    return false;
+  }
+};
+
+// Function to release lock
+const releaseLock = () => {
+  try {
+    if (fs.existsSync(LOCK_FILE_PATH)) {
+      fs.unlinkSync(LOCK_FILE_PATH);
+    }
+  } catch (error) {
+    console.error('Failed to release lock:', error);
+  }
+};
+
 // Function to load tracking data from file
 const loadTrackingData = () => {
   try {
-    console.log('📂 Using tracking file path:', TRACKING_FILE_PATH);
+    console.log('📂 Loading tracking data...');
     
     // Create data directory if it doesn't exist
     if (!fs.existsSync(dataDir)) {
@@ -38,131 +58,140 @@ const loadTrackingData = () => {
       console.log('📁 Created data directory at:', dataDir);
     }
 
-    // Load existing data if file exists
-    if (fs.existsSync(TRACKING_FILE_PATH)) {
-      console.log('📄 Found existing tracking file');
-      const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
-      
-      // Check if file is empty
-      if (!data.trim()) {
-        console.log('⚠️ Tracking file is empty, keeping existing tracking data');
-        saveTrackingData();
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(data);
-        
-        // Validate parsed data structure
-        if (!parsed || typeof parsed !== 'object') {
-          console.log('⚠️ Invalid tracking data format, keeping existing tracking');
-          saveTrackingData();
-          return;
-        }
-
-        // Initialize missing properties if needed
-        parsed.status = parsed.status || {};
-        parsed.campaign = parsed.campaign || {};
-
-        // Convert date strings back to Date objects and validate data
-        let validData = true;
-        
-        Object.entries(parsed.status || {}).forEach(([key, item]) => {
-          try {
-            if (item && typeof item === 'object') {
-              item.startTime = new Date(item.startTime);
-              if (item.lastAlertTime) {
-                item.lastAlertTime = new Date(item.lastAlertTime);
-              }
-            } else {
-              console.log('⚠️ Invalid status data for:', key);
-              validData = false;
-            }
-          } catch (e) {
-            console.log('⚠️ Error processing status data for:', key, e);
-            validData = false;
-          }
-        });
-        
-        Object.entries(parsed.campaign || {}).forEach(([key, item]) => {
-          try {
-            if (item && typeof item === 'object') {
-              item.startTime = new Date(item.startTime);
-              if (item.lastAlertTime) {
-                item.lastAlertTime = new Date(item.lastAlertTime);
-              }
-            } else {
-              console.log('⚠️ Invalid campaign data for:', key);
-              validData = false;
-            }
-          } catch (e) {
-            console.log('⚠️ Error processing campaign data for:', key, e);
-            validData = false;
-          }
-        });
-        
-        // Only update tracking if we have valid data
-        if (validData && (Object.keys(parsed.status).length > 0 || Object.keys(parsed.campaign).length > 0)) {
-          activeTracking = parsed;
-          console.log('📥 Loaded tracking data successfully:', {
-            statusCount: Object.keys(parsed.status).length,
-            campaignCount: Object.keys(parsed.campaign).length,
-            campaigns: Object.keys(parsed.campaign),
-            statuses: Object.keys(parsed.status),
-            path: TRACKING_FILE_PATH
-          });
-        } else {
-          console.log('⚠️ No valid tracking data found, keeping existing tracking');
-          saveTrackingData();
-        }
-      } catch (parseError) {
-        console.error('❌ Error parsing tracking data:', parseError);
-        console.log('⚠️ Keeping existing tracking data after parse error');
-        saveTrackingData();
-      }
-    } else {
-      console.log('📝 No existing tracking file found, creating new one with current data at:', TRACKING_FILE_PATH);
-      saveTrackingData();
-    }
-  } catch (error) {
-    console.error('❌ Error loading tracking data:', error);
-    console.log('⚠️ Keeping existing tracking data after error');
-    saveTrackingData();
-  }
-};
-
-// Function to save tracking data to file with validation
-const saveTrackingData = () => {
-  try {
-    // Validate data structure before saving
-    if (!activeTracking || typeof activeTracking !== 'object') {
-      console.error('❌ Invalid tracking data structure, not saving');
+    // Try to acquire lock
+    if (!acquireLock()) {
+      console.log('⚠️ Could not acquire lock, using cached data');
       return;
     }
 
-    // Ensure required properties exist
-    activeTracking.status = activeTracking.status || {};
-    activeTracking.campaign = activeTracking.campaign || {};
+    try {
+      // Load existing data if file exists
+      if (fs.existsSync(TRACKING_FILE_PATH)) {
+        const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
+        
+        if (!data.trim()) {
+          console.log('⚠️ Tracking file is empty, using cached data');
+          return;
+        }
 
-    // Create a copy of the data for saving
-    const dataToSave = JSON.parse(JSON.stringify(activeTracking));
+        const parsed = JSON.parse(data);
+        
+        if (!parsed || typeof parsed !== 'object') {
+          console.log('⚠️ Invalid tracking data format, using cached data');
+          return;
+        }
 
-    // Ensure the directory exists
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-      console.log('📁 Created data directory before saving at:', dataDir);
+        // Deep merge the data
+        const mergedData = {
+          status: { ...activeTracking.status },
+          campaign: { ...activeTracking.campaign }
+        };
+
+        // Merge status data
+        if (parsed.status) {
+          Object.entries(parsed.status).forEach(([key, item]) => {
+            if (item && typeof item === 'object') {
+              mergedData.status[key] = {
+                ...item,
+                startTime: new Date(item.startTime),
+                lastAlertTime: item.lastAlertTime ? new Date(item.lastAlertTime) : null
+              };
+            }
+          });
+        }
+
+        // Merge campaign data
+        if (parsed.campaign) {
+          Object.entries(parsed.campaign).forEach(([key, item]) => {
+            if (item && typeof item === 'object') {
+              mergedData.campaign[key] = {
+                ...item,
+                startTime: new Date(item.startTime),
+                lastAlertTime: item.lastAlertTime ? new Date(item.lastAlertTime) : null
+              };
+            }
+          });
+        }
+
+        // Update active tracking
+        activeTracking = mergedData;
+
+        console.log('📥 Loaded tracking data:', {
+          statusCount: Object.keys(activeTracking.status).length,
+          campaignCount: Object.keys(activeTracking.campaign).length,
+          campaigns: Object.keys(activeTracking.campaign),
+          statuses: Object.keys(activeTracking.status)
+        });
+      }
+    } finally {
+      // Always release the lock
+      releaseLock();
+    }
+  } catch (error) {
+    console.error('❌ Error loading tracking data:', error);
+    releaseLock();
+  }
+};
+
+// Function to save tracking data to file
+const saveTrackingData = () => {
+  try {
+    // Try to acquire lock
+    if (!acquireLock()) {
+      console.log('⚠️ Could not acquire lock for saving, will retry on next update');
+      return;
     }
 
-    fs.writeFileSync(TRACKING_FILE_PATH, JSON.stringify(dataToSave, null, 2));
-    console.log('💾 Saved tracking data successfully:', {
-      statusCount: Object.keys(activeTracking.status).length,
-      campaignCount: Object.keys(activeTracking.campaign).length,
-      campaigns: Object.keys(activeTracking.campaign),
-      statuses: Object.keys(activeTracking.status),
-      path: TRACKING_FILE_PATH
-    });
+    try {
+      // Ensure the directory exists
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+
+      // Create a clean copy of the data for saving
+      const dataToSave = {
+        status: {},
+        campaign: {}
+      };
+
+      // Clean and prepare status data
+      Object.entries(activeTracking.status).forEach(([key, item]) => {
+        if (item && typeof item === 'object') {
+          dataToSave.status[key] = {
+            ...item,
+            startTime: item.startTime.toISOString(),
+            lastAlertTime: item.lastAlertTime ? item.lastAlertTime.toISOString() : null
+          };
+        }
+      });
+
+      // Clean and prepare campaign data
+      Object.entries(activeTracking.campaign).forEach(([key, item]) => {
+        if (item && typeof item === 'object') {
+          dataToSave.campaign[key] = {
+            ...item,
+            startTime: item.startTime.toISOString(),
+            lastAlertTime: item.lastAlertTime ? item.lastAlertTime.toISOString() : null
+          };
+        }
+      });
+
+      // Write the data
+      fs.writeFileSync(TRACKING_FILE_PATH, JSON.stringify(dataToSave, null, 2));
+      
+      console.log('💾 Saved tracking data:', {
+        statusCount: Object.keys(dataToSave.status).length,
+        campaignCount: Object.keys(dataToSave.campaign).length,
+        campaigns: Object.keys(dataToSave.campaign),
+        statuses: Object.keys(dataToSave.status)
+      });
+    } finally {
+      // Always release the lock
+      releaseLock();
+    }
   } catch (error) {
     console.error('❌ Error saving tracking data:', error);
+    releaseLock();
   }
 };
 
