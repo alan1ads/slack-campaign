@@ -7,11 +7,18 @@ require('dotenv').config();
 const TIMER_ALERTS_CHANNEL = 'C08F7C8RCV7';
 
 // Define the path for the tracking data file
-const TRACKING_FILE_PATH = path.join(__dirname, '../../data/tracking.json');
+const TRACKING_FILE_PATH = process.env.RENDER ? 
+  '/opt/render/project/src/data/tracking.json' : 
+  path.join(__dirname, '../../data/tracking.json');
 
 // Ensure the data directory exists
-if (!fs.existsSync(path.dirname(TRACKING_FILE_PATH))) {
-  fs.mkdirSync(path.dirname(TRACKING_FILE_PATH), { recursive: true });
+const dataDir = process.env.RENDER ? 
+  '/opt/render/project/src/data' : 
+  path.join(__dirname, '../../data');
+
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+  console.log('📁 Created data directory at:', dataDir);
 }
 
 // Load tracking data from file or initialize if doesn't exist
@@ -23,13 +30,17 @@ let activeTracking = {
 // Function to load tracking data from file
 const loadTrackingData = () => {
   try {
+    console.log('📂 Using tracking file path:', TRACKING_FILE_PATH);
+    
     // Create data directory if it doesn't exist
-    if (!fs.existsSync(path.dirname(TRACKING_FILE_PATH))) {
-      fs.mkdirSync(path.dirname(TRACKING_FILE_PATH), { recursive: true });
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+      console.log('📁 Created data directory at:', dataDir);
     }
 
     // Load existing data if file exists
     if (fs.existsSync(TRACKING_FILE_PATH)) {
+      console.log('📄 Found existing tracking file');
       const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
       const parsed = JSON.parse(data);
       
@@ -40,24 +51,48 @@ const loadTrackingData = () => {
         return;
       }
 
-      // Convert date strings back to Date objects
+      // Convert date strings back to Date objects and validate data
+      let validData = true;
+      
       Object.entries(parsed.status).forEach(([key, item]) => {
-        if (item && typeof item === 'object') {
-          item.startTime = new Date(item.startTime);
-          if (item.lastAlertTime) {
-            item.lastAlertTime = new Date(item.lastAlertTime);
+        try {
+          if (item && typeof item === 'object') {
+            item.startTime = new Date(item.startTime);
+            if (item.lastAlertTime) {
+              item.lastAlertTime = new Date(item.lastAlertTime);
+            }
+          } else {
+            console.log('⚠️ Invalid status data for:', key);
+            validData = false;
           }
+        } catch (e) {
+          console.log('⚠️ Error processing status data for:', key, e);
+          validData = false;
         }
       });
       
       Object.entries(parsed.campaign).forEach(([key, item]) => {
-        if (item && typeof item === 'object') {
-          item.startTime = new Date(item.startTime);
-          if (item.lastAlertTime) {
-            item.lastAlertTime = new Date(item.lastAlertTime);
+        try {
+          if (item && typeof item === 'object') {
+            item.startTime = new Date(item.startTime);
+            if (item.lastAlertTime) {
+              item.lastAlertTime = new Date(item.lastAlertTime);
+            }
+          } else {
+            console.log('⚠️ Invalid campaign data for:', key);
+            validData = false;
           }
+        } catch (e) {
+          console.log('⚠️ Error processing campaign data for:', key, e);
+          validData = false;
         }
       });
+      
+      if (!validData) {
+        console.log('⚠️ Found invalid data in tracking file, keeping existing tracking');
+        saveTrackingData();
+        return;
+      }
       
       // Only update tracking if we have valid data
       if (Object.keys(parsed.status).length > 0 || Object.keys(parsed.campaign).length > 0) {
@@ -66,17 +101,16 @@ const loadTrackingData = () => {
           statusCount: Object.keys(parsed.status).length,
           campaignCount: Object.keys(parsed.campaign).length,
           campaigns: Object.keys(parsed.campaign),
-          statuses: Object.keys(parsed.status)
+          statuses: Object.keys(parsed.status),
+          path: TRACKING_FILE_PATH
         });
       }
     } else {
-      // Create new file with current tracking data
-      console.log('📝 Creating new tracking file with current data');
+      console.log('📝 No existing tracking file found, creating new one at:', TRACKING_FILE_PATH);
       saveTrackingData();
     }
   } catch (error) {
     console.error('❌ Error loading tracking data:', error);
-    // Keep existing tracking data instead of clearing it
     console.log('⚠️ Keeping existing tracking data after error');
     saveTrackingData();
   }
