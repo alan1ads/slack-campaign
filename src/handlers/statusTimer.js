@@ -47,7 +47,9 @@ const releaseLock = () => {
   }
 };
 
-// NEW FUNCTION: Load tracking data from Jira
+// Updated loadTrackingDataFromJira function with improved error handling and JQL query
+// Replace this function in your statusTimer.js file
+
 const loadTrackingDataFromJira = async (app) => {
   console.log('🔄 Initializing tracking data from Jira...');
   
@@ -57,6 +59,35 @@ const loadTrackingDataFromJira = async (app) => {
     
     // Get all active issues from Jira
     console.log('🔍 Fetching active issues from Jira...');
+    
+    // Construct JQL query more carefully
+    let jqlQuery;
+    try {
+      // Try a simpler query first to test connectivity
+      const testResponse = await axios({
+        method: 'GET',
+        url: `https://${process.env.JIRA_HOST}/rest/api/3/myself`,
+        auth: {
+          username: process.env.JIRA_EMAIL,
+          password: process.env.JIRA_API_TOKEN
+        }
+      });
+      
+      console.log('✅ Jira connection test successful, user:', testResponse.data.displayName);
+      
+      // Use a simpler JQL query with proper escaping
+      jqlQuery = 'project = "AS"';
+      console.log('🔍 Using JQL query:', jqlQuery);
+      
+    } catch (testError) {
+      console.error('❌ Jira connection test failed:', testError.message);
+      if (testError.response) {
+        console.error('  Status:', testError.response.status);
+        console.error('  Data:', JSON.stringify(testError.response.data));
+      }
+      throw new Error('Could not connect to Jira API: ' + testError.message);
+    }
+    
     const response = await axios({
       method: 'GET',
       url: `https://${process.env.JIRA_HOST}/rest/api/3/search`,
@@ -65,9 +96,9 @@ const loadTrackingDataFromJira = async (app) => {
         password: process.env.JIRA_API_TOKEN
       },
       params: {
-        jql: 'project = AS AND status not in ("Phase Complete", "Failed")',
-        maxResults: 200,
-        fields: 'key,status,summary,created,updated,customfield_10281,assignee'
+        jql: jqlQuery,
+        maxResults: 100,
+        fields: 'key,status,summary,created,updated,assignee,customfield_10281'
       }
     });
     
@@ -78,6 +109,14 @@ const loadTrackingDataFromJira = async (app) => {
     
     console.log(`🔍 Found ${response.data.issues.length} active issues to track`);
     
+    // Filter for active issues (not completed/failed) in code rather than in JQL
+    const activeIssues = response.data.issues.filter(issue => {
+      const status = issue.fields.status.name.toUpperCase();
+      return status !== 'PHASE COMPLETE' && status !== 'FAILED';
+    });
+    
+    console.log(`🔍 Filtered down to ${activeIssues.length} issues not in completed/failed status`);
+    
     // Track issues we've processed to detect any that need to be removed
     const processedIssues = {
       status: new Set(),
@@ -85,7 +124,7 @@ const loadTrackingDataFromJira = async (app) => {
     };
     
     // Process each issue and set up tracking
-    for (const issue of response.data.issues) {
+    for (const issue of activeIssues) {
       const issueKey = issue.key;
       const statusValue = issue.fields.customfield_10281?.value; // Status field
       const campaignStatus = issue.fields.status.name;  // Campaign Status field
@@ -254,6 +293,10 @@ const loadTrackingDataFromJira = async (app) => {
     
   } catch (error) {
     console.error('❌ Error initializing tracking data from Jira:', error.message);
+    if (error.response) {
+      console.error('  Status:', error.response.status);
+      console.error('  Error details:', JSON.stringify(error.response.data || {}));
+    }
     // If Jira sync fails, fall back to local file
     console.log('⚠️ Falling back to local tracking data');
     loadTrackingDataFromFile();
