@@ -1,6 +1,6 @@
 const axios = require('axios');
 require('dotenv').config();
-const { startTracking, clearTracking } = require('./statusTimer');
+const { startTracking, clearTracking, ensureChannelAccess } = require('./statusTimer');
 
 // Map the user-friendly commands to exact Jira values
 const STATUS_MAP = {
@@ -12,8 +12,8 @@ const STATUS_MAP = {
   'phase complete': '✨ Phase Complete'
 };
 
-// Add new constant at the top for the new channel
-const NEW_REQUEST_NOTIFICATION_CHANNEL = 'C08FRT6HNHH';
+// Replace the hardcoded channel constant with environment variable
+const NEW_REQUEST_NOTIFICATION_CHANNEL = process.env.SLACK_NEW_REQUEST_CHANNEL;
 
 // Helper function to send Slack notification
 const sendSlackNotification = async (app, issueKey, oldStatus, newStatus, updatedBy) => {
@@ -53,6 +53,18 @@ const sendSlackNotification = async (app, issueKey, oldStatus, newStatus, update
 // Webhook handler for Jira status updates
 const handleJiraWebhook = async (req, res, app) => {
   try {
+    const webhookData = req.body;
+    
+    // Enhanced webhook logging
+    console.log('📥 Webhook Details:', {
+      event: webhookData.webhookEvent,
+      issueKey: webhookData.issue?.key,
+      projectKey: webhookData.issue?.fields?.project?.key,
+      status: webhookData.issue?.fields?.status?.name,
+      isNewRequest: webhookData.issue?.fields?.status?.name?.toUpperCase() === 'NEW REQUEST',
+      creator: webhookData.issue?.fields?.creator?.displayName
+    });
+
     // Add logging to see what project the webhook is for
     console.log('🎫 Webhook project:', req.body.issue?.fields?.project?.key);
     
@@ -62,7 +74,6 @@ const handleJiraWebhook = async (req, res, app) => {
       return res.status(200).send('Skipped non-AS project');
     }
 
-    const webhookData = req.body;
     console.log('📦 Full webhook data:', JSON.stringify(webhookData, null, 2));
 
     // Basic validation
@@ -240,6 +251,8 @@ const handleJiraWebhook = async (req, res, app) => {
             console.log(`📢 New Request created for ${issueKey}`);
             
             // Send notification to the specific channel
+            await ensureChannelAccess(app, NEW_REQUEST_NOTIFICATION_CHANNEL);
+            
             await app.client.chat.postMessage({
               token: process.env.SLACK_BOT_TOKEN,
               channel: NEW_REQUEST_NOTIFICATION_CHANNEL,
@@ -312,6 +325,9 @@ const handleJiraWebhook = async (req, res, app) => {
         console.log(`🆕 Sending New Request notification for ${issueKey} to channel ${NEW_REQUEST_NOTIFICATION_CHANNEL}`);
         
         try {
+          // Ensure channel access before sending
+          await ensureChannelAccess(app, NEW_REQUEST_NOTIFICATION_CHANNEL);
+          
           await app.client.chat.postMessage({
             token: process.env.SLACK_BOT_TOKEN,
             channel: NEW_REQUEST_NOTIFICATION_CHANNEL,
