@@ -28,65 +28,76 @@ const loadTrackingData = () => {
       fs.mkdirSync(path.dirname(TRACKING_FILE_PATH), { recursive: true });
     }
 
-    // Create empty tracking file if it doesn't exist
-    if (!fs.existsSync(TRACKING_FILE_PATH)) {
-      fs.writeFileSync(TRACKING_FILE_PATH, JSON.stringify({
-        status: {},
-        campaign: {}
-      }, null, 2));
-      console.log('📝 Created new tracking data file');
-      return;
-    }
+    // Load existing data if file exists
+    if (fs.existsSync(TRACKING_FILE_PATH)) {
+      const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
+      const parsed = JSON.parse(data);
+      
+      // Keep existing tracking data if file is empty or invalid
+      if (!parsed || !parsed.status || !parsed.campaign) {
+        console.log('⚠️ Found invalid tracking data, keeping existing tracking');
+        saveTrackingData(); // Save current tracking data
+        return;
+      }
 
-    const data = fs.readFileSync(TRACKING_FILE_PATH, 'utf8');
-    const parsed = JSON.parse(data);
-    
-    // Ensure the parsed data has the correct structure
-    if (!parsed.status || !parsed.campaign) {
-      console.log('⚠️ Invalid tracking data structure, initializing new tracking data');
-      activeTracking = {
-        status: {},
-        campaign: {}
-      };
+      // Convert date strings back to Date objects
+      Object.entries(parsed.status).forEach(([key, item]) => {
+        if (item && typeof item === 'object') {
+          item.startTime = new Date(item.startTime);
+          if (item.lastAlertTime) {
+            item.lastAlertTime = new Date(item.lastAlertTime);
+          }
+        }
+      });
+      
+      Object.entries(parsed.campaign).forEach(([key, item]) => {
+        if (item && typeof item === 'object') {
+          item.startTime = new Date(item.startTime);
+          if (item.lastAlertTime) {
+            item.lastAlertTime = new Date(item.lastAlertTime);
+          }
+        }
+      });
+      
+      // Only update tracking if we have valid data
+      if (Object.keys(parsed.status).length > 0 || Object.keys(parsed.campaign).length > 0) {
+        activeTracking = parsed;
+        console.log('📥 Loaded existing tracking data:', {
+          statusCount: Object.keys(parsed.status).length,
+          campaignCount: Object.keys(parsed.campaign).length,
+          campaigns: Object.keys(parsed.campaign),
+          statuses: Object.keys(parsed.status)
+        });
+      }
+    } else {
+      // Create new file with current tracking data
+      console.log('📝 Creating new tracking file with current data');
       saveTrackingData();
-      return;
     }
-
-    // Convert date strings back to Date objects
-    Object.values(parsed.status).forEach(item => {
-      item.startTime = new Date(item.startTime);
-      if (item.lastAlertTime) {
-        item.lastAlertTime = new Date(item.lastAlertTime);
-      }
-    });
-    Object.values(parsed.campaign).forEach(item => {
-      item.startTime = new Date(item.startTime);
-      if (item.lastAlertTime) {
-        item.lastAlertTime = new Date(item.lastAlertTime);
-      }
-    });
-    
-    activeTracking = parsed;
-    console.log('📥 Loaded tracking data from file:', {
-      statusCount: Object.keys(parsed.status).length,
-      campaignCount: Object.keys(parsed.campaign).length
-    });
   } catch (error) {
     console.error('❌ Error loading tracking data:', error);
-    // Initialize with empty tracking if there's an error
-    activeTracking = {
-      status: {},
-      campaign: {}
-    };
+    // Keep existing tracking data instead of clearing it
+    console.log('⚠️ Keeping existing tracking data after error');
     saveTrackingData();
   }
 };
 
-// Function to save tracking data to file
+// Function to save tracking data to file with validation
 const saveTrackingData = () => {
   try {
+    // Validate data before saving
+    if (!activeTracking || !activeTracking.status || !activeTracking.campaign) {
+      console.error('❌ Invalid tracking data structure, not saving');
+      return;
+    }
+
     fs.writeFileSync(TRACKING_FILE_PATH, JSON.stringify(activeTracking, null, 2));
-    console.log('💾 Saved tracking data to file');
+    console.log('💾 Saved tracking data:', {
+      statusCount: Object.keys(activeTracking.status).length,
+      campaignCount: Object.keys(activeTracking.campaign).length,
+      campaigns: Object.keys(activeTracking.campaign),
+      statuses: Object.keys(activeTracking.status)
+    });
   } catch (error) {
     console.error('❌ Error saving tracking data:', error);
   }
@@ -379,7 +390,7 @@ const checkStatusAlerts = async (app) => {
   }
 };
 
-// Modify clearTracking to save data after clearing
+// Modify clearTracking to be more careful about clearing data
 const clearTracking = (issueKey, statusType) => {
   if (issueKey && statusType) {
     // Clear specific issue tracking
@@ -390,14 +401,10 @@ const clearTracking = (issueKey, statusType) => {
       saveTrackingData();
     }
   } else {
-    // Clear all tracking (on startup)
-    activeTracking = {
-      status: {},
-      campaign: {}
-    };
-    console.log('🧹 Cleared all status tracking');
-    // Save tracking data after clearing all
-    saveTrackingData();
+    // Only clear all tracking if explicitly called with no parameters
+    // This prevents accidental clearing of all data
+    console.log('⚠️ Attempted to clear all tracking - Operation not allowed');
+    return;
   }
 };
 
