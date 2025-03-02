@@ -126,8 +126,8 @@ const CAMPAIGN_STATUS_THRESHOLDS = {
   'PHASE 2': 4560,             // 76 hours
   'PHASE 3': 10080,            // 168 hours (1 week)
   'PHASE 4': 10080,            // 168 hours (1 week)
-  'PHASE COMPLETE': null,       // Timer disabled
-  'FAILED': null               // Timer disabled
+  'PHASE COMPLETE': null,       // Timer disabled!
+  'FAILED': null               // Timer disabled!
 };
 
 let campaignStatusThresholds = {};
