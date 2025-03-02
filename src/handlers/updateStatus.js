@@ -12,6 +12,9 @@ const STATUS_MAP = {
   'phase complete': '✨ Phase Complete'
 };
 
+// Add new constant at the top for the new channel
+const NEW_REQUEST_NOTIFICATION_CHANNEL = 'C08FRT6HNHH';
+
 // Helper function to send Slack notification
 const sendSlackNotification = async (app, issueKey, oldStatus, newStatus, updatedBy) => {
   try {
@@ -231,6 +234,49 @@ const handleJiraWebhook = async (req, res, app) => {
             ]
           });
           console.log('✅ Slack notification sent successfully');
+
+          // Check if this is a new "New Request"
+          if (newStatus === 'New Request') {
+            console.log(`📢 New Request created for ${issueKey}`);
+            
+            // Send notification to the specific channel
+            await app.client.chat.postMessage({
+              token: process.env.SLACK_BOT_TOKEN,
+              channel: NEW_REQUEST_NOTIFICATION_CHANNEL,
+              text: `New Campaign Request Created: ${issueKey}`,
+              blocks: [
+                {
+                  type: "header",
+                  text: {
+                    type: "plain_text",
+                    text: "🆕 New Campaign Request Created",
+                    emoji: true
+                  }
+                },
+                {
+                  type: "section",
+                  fields: [
+                    {
+                      type: "mrkdwn",
+                      text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                    },
+                    {
+                      type: "mrkdwn",
+                      text: `*Summary:*\n${webhookData.issue.fields.summary || 'No summary'}`
+                    },
+                    {
+                      type: "mrkdwn",
+                      text: `*Created By:*\n${webhookData.user?.displayName || 'Unknown'}`
+                    },
+                    {
+                      type: "mrkdwn",
+                      text: `*Created At:*\n${new Date().toLocaleString()}`
+                    }
+                  ]
+                }
+              ]
+            });
+          }
         } catch (error) {
           console.error('❌ Error:', error);
         }
