@@ -503,7 +503,7 @@ const STATUS_THRESHOLDS = {
   '⚡ Let it Ride': 2880,
   '✅ Roll Out': 2880,
   '✨ Phase Complete': 2880,
-  '💀 Killed': 2880,
+  '💀 Killed': null,
   '🔁 Another Chance': 2880
 };
 
@@ -559,6 +559,10 @@ const hasAssignee = (issue) => {
 // Convert minutes to milliseconds with special handling
 const getThresholdMs = (statusType, statusValue, issue) => {
   if (statusType === 'status') {
+    // Check if the status has a null threshold (disabled)
+    if (STATUS_THRESHOLDS[statusValue] === null) {
+      return null; // Don't start timer for disabled statuses
+    }
     return (STATUS_THRESHOLDS[statusValue] || 5) * 60 * 1000;
   } else {
     // For campaign status, convert to uppercase to match keys
