@@ -719,14 +719,20 @@ const checkStatusAlerts = async (app) => {
       const thresholdMs = getThresholdMs('status', tracking.status, tracking.issue);
       const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : thresholdMs;
 
+      // Always fetch the latest comment for the issue, even if we don't send an alert
+      const latestComment = await getLatestComment(issueKey);
+      
+      // Store the latest comment in the tracking data for future reference
+      if (latestComment) {
+        activeTracking.status[issueKey].latestComment = latestComment;
+        dataChanged = true;
+      }
+
       if (timeInStatus > thresholdMs && timeSinceLastAlert >= thresholdMs) {
         console.log(`⚠️ Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
         // Ensure channel access before sending
         await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
-
-        // Get the latest comment for the issue
-        const latestComment = await getLatestComment(issueKey);
         
         // Prepare message blocks
         const messageBlocks = [
@@ -793,14 +799,20 @@ const checkStatusAlerts = async (app) => {
       const thresholdMs = getThresholdMs('campaign', tracking.status, tracking.issue);
       const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : thresholdMs;
 
+      // Always fetch the latest comment for the issue, even if we don't send an alert
+      const latestComment = await getLatestComment(issueKey);
+      
+      // Store the latest comment in the tracking data for future reference
+      if (latestComment) {
+        activeTracking.campaign[issueKey].latestComment = latestComment;
+        dataChanged = true;
+      }
+
       if (timeInStatus > thresholdMs && timeSinceLastAlert >= thresholdMs) {
         console.log(`⚠️ Campaign Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
         // Ensure channel access before sending
         await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
-
-        // Get the latest comment for the issue
-        const latestComment = await getLatestComment(issueKey);
         
         // Send Slack alert with custom message for NEW REQUEST
         const isNewRequest = tracking.status.toUpperCase() === 'NEW REQUEST';
