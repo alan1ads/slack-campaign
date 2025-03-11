@@ -629,6 +629,62 @@ const checkIssueExists = async (issueKey) => {
   }
 };
 
+// Function to fetch the latest comment for an issue
+const getLatestComment = async (issueKey) => {
+  try {
+    console.log(`📝 Fetching comments for issue ${issueKey}`);
+    const response = await axios({
+      method: 'GET',
+      url: `https://${process.env.JIRA_HOST}/rest/api/3/issue/${issueKey}/comment?maxResults=1&orderBy=-created`,
+      auth: {
+        username: process.env.JIRA_EMAIL,
+        password: process.env.JIRA_API_TOKEN
+      }
+    });
+    
+    if (response.data && response.data.comments && response.data.comments.length > 0) {
+      const comment = response.data.comments[0];
+      console.log(`📝 Found latest comment from ${comment.author.displayName}`);
+      
+      // Extract the text content from the Jira comment body
+      let commentText = '';
+      if (comment.body && comment.body.type === 'doc') {
+        // Try to extract text from Jira's Atlassian Document Format
+        try {
+          commentText = comment.body.content
+            .map(block => {
+              if (block.type === 'paragraph') {
+                return block.content
+                  .filter(item => item.type === 'text')
+                  .map(item => item.text)
+                  .join('');
+              }
+              return '';
+            })
+            .join('\n')
+            .trim();
+        } catch (e) {
+          commentText = 'Error parsing comment content';
+        }
+      } else if (typeof comment.body === 'string') {
+        commentText = comment.body;
+      }
+      
+      return {
+        text: commentText,
+        author: comment.author.displayName,
+        created: comment.created
+      };
+    }
+    
+    console.log(`📝 No comments found for issue ${issueKey}`);
+    return null;
+  } catch (error) {
+    console.error(`❌ Error fetching comments for ${issueKey}:`, error.message);
+    return null;
+  }
+};
+
 // Add ensure channel access function
 const ensureChannelAccess = async (app, channelId) => {
   try {
@@ -668,39 +724,56 @@ const checkStatusAlerts = async (app) => {
         
         // Ensure channel access before sending
         await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
+
+        // Get the latest comment for the issue
+        const latestComment = await getLatestComment(issueKey);
+        
+        // Prepare message blocks
+        const messageBlocks = [
+          {
+            type: "header",
+            text: {
+              type: "plain_text",
+              text: "⏰ Status Timer Alert",
+              emoji: true
+            }
+          },
+          {
+            type: "section",
+            fields: [
+              {
+                type: "mrkdwn",
+                text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+              },
+              {
+                type: "mrkdwn",
+                text: `*Current Status:*\n${tracking.status}`
+              },
+              {
+                type: "mrkdwn",
+                text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
+              }
+            ]
+          }
+        ];
+
+        // Add latest comment section if available
+        if (latestComment) {
+          messageBlocks.push({
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `*Latest Comment:*\n>${latestComment.text}\n_by ${latestComment.author} at ${new Date(latestComment.created).toLocaleString()}_`
+            }
+          });
+        }
         
         // Send Slack alert
         await app.client.chat.postMessage({
           token: process.env.SLACK_BOT_TOKEN,
           channel: TIMER_ALERTS_CHANNEL,
           text: `Status Timer Alert for ${issueKey}`,
-          blocks: [
-            {
-              type: "header",
-              text: {
-                type: "plain_text",
-                text: "⏰ Status Timer Alert",
-                emoji: true
-              }
-            },
-            {
-              type: "section",
-              fields: [
-                {
-                  type: "mrkdwn",
-                  text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*Current Status:*\n${tracking.status}`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
-                }
-              ]
-            }
-          ]
+          blocks: messageBlocks
         });
 
         // After sending alert, update lastAlertTime
@@ -725,47 +798,64 @@ const checkStatusAlerts = async (app) => {
         
         // Ensure channel access before sending
         await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
+
+        // Get the latest comment for the issue
+        const latestComment = await getLatestComment(issueKey);
         
         // Send Slack alert with custom message for NEW REQUEST
         const isNewRequest = tracking.status.toUpperCase() === 'NEW REQUEST';
+        
+        // Prepare message blocks
+        const messageBlocks = [
+          {
+            type: "header",
+            text: {
+              type: "plain_text",
+              text: isNewRequest ? "⏰ Assignee Action Required" : "⏰ Campaign Status Timer Alert",
+              emoji: true
+            }
+          },
+          {
+            type: "section",
+            fields: [
+              {
+                type: "mrkdwn",
+                text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+              },
+              {
+                type: "mrkdwn",
+                text: `*Campaign:*\n${tracking.status}`
+              },
+              {
+                type: "mrkdwn",
+                text: isNewRequest 
+                  ? "*Alert:*\nAssignee has been on this task for over 10 minutes"
+                  : `*Current Campaign Status:*\n${tracking.status}`
+              },
+              {
+                type: "mrkdwn",
+                text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
+              }
+            ]
+          }
+        ];
+
+        // Add latest comment section if available
+        if (latestComment) {
+          messageBlocks.push({
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `*Latest Comment:*\n>${latestComment.text}\n_by ${latestComment.author} at ${new Date(latestComment.created).toLocaleString()}_`
+            }
+          });
+        }
         
         await app.client.chat.postMessage({
           token: process.env.SLACK_BOT_TOKEN,
           channel: TIMER_ALERTS_CHANNEL,
           text: `Campaign Status Timer Alert for ${issueKey}`,
-          blocks: [
-            {
-              type: "header",
-              text: {
-                type: "plain_text",
-                text: isNewRequest ? "⏰ Assignee Action Required" : "⏰ Campaign Status Timer Alert",
-                emoji: true
-              }
-            },
-            {
-              type: "section",
-              fields: [
-                {
-                  type: "mrkdwn",
-                  text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*Campaign:*\n${tracking.status}`
-                },
-                {
-                  type: "mrkdwn",
-                  text: isNewRequest 
-                    ? "*Alert:*\nAssignee has been on this task for over 10 minutes"
-                    : `*Current Campaign Status:*\n${tracking.status}`
-                },
-                {
-                  type: "mrkdwn",
-                  text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
-                }
-              ]
-            }
-          ]
+          blocks: messageBlocks
         });
 
         // After sending alert, update lastAlertTime
@@ -927,5 +1017,6 @@ module.exports = {
   updateCampaignThreshold,
   ensureChannelAccess,
   loadTrackingData: loadTrackingDataFromFile, // For backward compatibility
-  loadTrackingDataFromJira // Export new Jira-based function
+  loadTrackingDataFromJira, // Export new Jira-based function
+  getLatestComment
 };
