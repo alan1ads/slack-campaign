@@ -259,12 +259,22 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
 // After all the imports and before app initialization, add the reconnection function
 const startSocketModeClient = async (app) => {
   try {
-    // Set up more robust error handling for Socket Mode
-    app.client.socketMode.on('error', async (error) => {
-      console.error('⚠️ Socket Mode error:', error.message);
-      console.log('🔄 Will attempt to reconnect automatically...');
-      // Don't need to do anything as the built-in reconnection should handle it
-    });
+    // Start the app first
+    await app.start();
+    console.log('⚡️ Bolt app is running with Socket Mode!');
+    
+    // Now set up event listeners AFTER the app has started
+    // This ensures app.client.socketMode exists
+    
+    // Set up Socket Mode event handlers
+    if (app.client.socketMode) {
+      app.client.socketMode.on('error', async (error) => {
+        console.error('⚠️ Socket Mode error:', error.message);
+        console.log('🔄 Will attempt to reconnect automatically...');
+      });
+    } else {
+      console.log('⚠️ socketMode client not available, skipping socketMode.on setup');
+    }
 
     // Add additional Socket Mode event handlers
     app.client.on('unable_to_socket_mode_start', async () => {
@@ -295,10 +305,6 @@ const startSocketModeClient = async (app) => {
       console.log('🔄 Process will continue running despite error');
       // Don't exit the process
     });
-
-    // Start the app
-    await app.start();
-    console.log('⚡️ Bolt app is running with Socket Mode!');
   } catch (error) {
     console.error('❌ Error starting Socket Mode:', error);
     // Try to reconnect after a delay
