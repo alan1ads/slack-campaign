@@ -513,10 +513,11 @@ const CAMPAIGN_STATUS_THRESHOLDS = {
   'REQUEST REVIEW': 1200,       // 20 hours
   'READY TO SHIP': 1440,        // 24 hours
   'SUBMISSION REVIEW': 240,     // 4 hours
-  'PHASE 1': 3120,             // 52 hours
-  'PHASE 2': 4560,             // 76 hours
-  'PHASE 3': 10080,            // 168 hours (1 week)
-  'PHASE 4': 10080,            // 168 hours (1 week)
+  'PHASE 1': 1440,              // 24 hours (was 52 hours)
+  'PHASE 2': 1440,              // 24 hours (was 76 hours)
+  'PHASE 3': 1440,              // 24 hours (was 168 hours/1 week)
+  'PHASE 4': 1440,              // 24 hours (was 168 hours/1 week)
+  'PHASE 5': 1440,              // 24 hours (new phase)
   'PHASE COMPLETE': null,       // Timer disabled!
   'FAILED': null,               // Timer disabled!
   'NEED MORE AMMO': null        // Timer disabled!
@@ -797,7 +798,17 @@ const checkStatusAlerts = async (app) => {
 
       const timeInStatus = now - tracking.startTime;
       const thresholdMs = getThresholdMs('campaign', tracking.status, tracking.issue);
+      
+      // For PHASE statuses, use 24 hour reminder interval (1440 minutes)
+      let reminderThresholdMs = thresholdMs;
+      if (tracking.status.toUpperCase().startsWith('PHASE ')) {
+        reminderThresholdMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+      }
+      
+      // Use reminderThresholdMs for repeat alerts
       const timeSinceLastAlert = tracking.lastAlertTime ? (now - tracking.lastAlertTime) : thresholdMs;
+      const shouldAlert = timeInStatus > thresholdMs && 
+                        (tracking.lastAlertTime === null || timeSinceLastAlert >= reminderThresholdMs);
 
       // Always fetch the latest comment for the issue, even if we don't send an alert
       const latestComment = await getLatestComment(issueKey);
@@ -808,7 +819,7 @@ const checkStatusAlerts = async (app) => {
         dataChanged = true;
       }
 
-      if (timeInStatus > thresholdMs && timeSinceLastAlert >= thresholdMs) {
+      if (shouldAlert) {
         console.log(`⚠️ Campaign Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
         // Ensure channel access before sending
@@ -816,6 +827,7 @@ const checkStatusAlerts = async (app) => {
         
         // Send Slack alert with custom message for NEW REQUEST
         const isNewRequest = tracking.status.toUpperCase() === 'NEW REQUEST';
+        const isPhase = tracking.status.toUpperCase().startsWith('PHASE ');
         
         // Prepare message blocks
         const messageBlocks = [
@@ -842,7 +854,9 @@ const checkStatusAlerts = async (app) => {
                 type: "mrkdwn",
                 text: isNewRequest 
                   ? "*Alert:*\nAssignee has been on this task for over 10 minutes"
-                  : `*Current Campaign Status:*\n${tracking.status}`
+                  : isPhase
+                    ? `*Alert:*\nDaily reminder - issue has been in ${tracking.status} for ${Math.round(timeInStatus / (60 * 60 * 1000))} hours`
+                    : `*Current Campaign Status:*\n${tracking.status}`
               },
               {
                 type: "mrkdwn",

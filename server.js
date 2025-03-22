@@ -259,6 +259,44 @@ app.command('/metrics-pull', async ({ command, ack, say }) => {
 // After all the imports and before app initialization, add the reconnection function
 const startSocketModeClient = async (app) => {
   try {
+    // Set up more robust error handling for Socket Mode
+    app.client.socketMode.on('error', async (error) => {
+      console.error('⚠️ Socket Mode error:', error.message);
+      console.log('🔄 Will attempt to reconnect automatically...');
+      // Don't need to do anything as the built-in reconnection should handle it
+    });
+
+    // Add additional Socket Mode event handlers
+    app.client.on('unable_to_socket_mode_start', async () => {
+      console.log('🔌 Unable to start Socket Mode, attempting to reconnect...');
+      setTimeout(() => startSocketModeClient(app), 5000);
+    });
+
+    app.client.on('disconnect', async () => {
+      console.log('🔌 Socket Mode disconnected, attempting to reconnect...');
+      setTimeout(() => startSocketModeClient(app), 5000);
+    });
+
+    app.client.on('reconnect', async () => {
+      console.log('🔄 Socket Mode reconnected successfully');
+    });
+
+    // Add uncaughtException handler to prevent crashes
+    process.on('uncaughtException', (error) => {
+      console.error('❌ Uncaught Exception:', error.message);
+      console.error(error.stack);
+      console.log('🔄 Process will continue running despite error');
+      // Don't exit the process
+    });
+
+    // Add unhandledRejection handler
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('❌ Unhandled Promise Rejection:', reason);
+      console.log('🔄 Process will continue running despite error');
+      // Don't exit the process
+    });
+
+    // Start the app
     await app.start();
     console.log('⚡️ Bolt app is running with Socket Mode!');
   } catch (error) {
@@ -283,21 +321,6 @@ const startSocketModeClient = async (app) => {
       }
     }, 60000); // Check every minute
 
-    // Add Socket Mode event listeners
-    app.client.on('unable_to_socket_mode_start', async () => {
-      console.log('🔌 Unable to start Socket Mode, attempting to reconnect...');
-      setTimeout(() => startSocketModeClient(app), 5000);
-    });
-
-    app.client.on('disconnect', async () => {
-      console.log('🔌 Socket Mode disconnected, attempting to reconnect...');
-      setTimeout(() => startSocketModeClient(app), 5000);
-    });
-
-    app.client.on('reconnect', async () => {
-      console.log('🔄 Socket Mode reconnected successfully');
-    });
-
     // Start Socket Mode with error handling
     await startSocketModeClient(app);
     
@@ -308,6 +331,18 @@ const startSocketModeClient = async (app) => {
     });
   } catch (error) {
     console.error('❌ Fatal error:', error);
-    process.exit(1);
+    console.error(error.stack);
+    
+    // Don't exit the process immediately on initial startup error
+    console.log('⚠️ Attempting to continue despite startup error...');
+    
+    // Still try to start the Express server
+    const port = process.env.PORT || 3000;
+    expressApp.listen(port, () => {
+      console.log(`Express server is running on port ${port} (after error recovery)`);
+    });
+    
+    // Try to reconnect Socket Mode after delay
+    setTimeout(() => startSocketModeClient(app), 10000);
   }
 })();
