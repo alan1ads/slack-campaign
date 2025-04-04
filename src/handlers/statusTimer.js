@@ -19,6 +19,29 @@ const dataDir = process.env.RENDER ?
 // Add lock file path
 const LOCK_FILE_PATH = path.join(dataDir, '.lock');
 
+// Helper function to check if current time is weekend in ET timezone
+const isWeekendET = () => {
+  // Create date in ET timezone
+  const options = { timeZone: 'America/New_York' };
+  const now = new Date();
+  const etDate = new Date(now.toLocaleString('en-US', options));
+  
+  // Get day of week (0 = Sunday, 6 = Saturday)
+  const day = etDate.getDay();
+  
+  // Weekend is Saturday (6) and Sunday (0)
+  return day === 0 || day === 6;
+};
+
+// Function to check if we should send Slack notifications
+const shouldSendSlackNotifications = () => {
+  if (isWeekendET()) {
+    console.log('🔕 Weekend detected in ET timezone. Slack notifications are paused.');
+    return false;
+  }
+  return true;
+};
+
 // Load tracking data from file or initialize if doesn't exist
 let activeTracking = {
   status: {},      // For customfield_10281 (Status)
@@ -704,6 +727,12 @@ const checkStatusAlerts = async (app) => {
     const now = new Date();
     let dataChanged = false;
     
+    // Check if we're in weekend mode
+    const slackNotificationsEnabled = shouldSendSlackNotifications();
+    if (!slackNotificationsEnabled) {
+      console.log('🔕 Weekend mode active: Tracking continues but Slack notifications are paused');
+    }
+    
     console.log('🔍 Checking tracked statuses:', {
       campaign: Object.keys(activeTracking.campaign),
       status: Object.keys(activeTracking.status)
@@ -732,60 +761,66 @@ const checkStatusAlerts = async (app) => {
       if (timeInStatus > thresholdMs && timeSinceLastAlert >= thresholdMs) {
         console.log(`⚠️ Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
-        // Ensure channel access before sending
-        await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
-        
-        // Prepare message blocks
-        const messageBlocks = [
-          {
-            type: "header",
-            text: {
-              type: "plain_text",
-              text: "⏰ Status Timer Alert",
-              emoji: true
-            }
-          },
-          {
-            type: "section",
-            fields: [
-              {
-                type: "mrkdwn",
-                text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
-              },
-              {
-                type: "mrkdwn",
-                text: `*Current Status:*\n${tracking.status}`
-              },
-              {
-                type: "mrkdwn",
-                text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
-              }
-            ]
-          }
-        ];
-
-        // Add latest comment section if available
-        if (latestComment) {
-          messageBlocks.push({
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `*Latest Comment:*\n>${latestComment.text}\n_by ${latestComment.author} at ${new Date(latestComment.created).toLocaleString()}_`
-            }
-          });
-        }
-        
-        // Send Slack alert
-        await app.client.chat.postMessage({
-          token: process.env.SLACK_BOT_TOKEN,
-          channel: TIMER_ALERTS_CHANNEL,
-          text: `Status Timer Alert for ${issueKey}`,
-          blocks: messageBlocks
-        });
-
-        // After sending alert, update lastAlertTime
+        // Update lastAlertTime regardless of whether we send to Slack
         activeTracking.status[issueKey].lastAlertTime = now;
         dataChanged = true;
+        
+        // Only send to Slack if not weekend
+        if (slackNotificationsEnabled) {
+          // Ensure channel access before sending
+          await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
+          
+          // Prepare message blocks
+          const messageBlocks = [
+            {
+              type: "header",
+              text: {
+                type: "plain_text",
+                text: "⏰ Status Timer Alert",
+                emoji: true
+              }
+            },
+            {
+              type: "section",
+              fields: [
+                {
+                  type: "mrkdwn",
+                  text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Current Status:*\n${tracking.status}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
+                }
+              ]
+            }
+          ];
+
+          // Add latest comment section if available
+          if (latestComment) {
+            messageBlocks.push({
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `*Latest Comment:*\n>${latestComment.text}\n_by ${latestComment.author} at ${new Date(latestComment.created).toLocaleString()}_`
+              }
+            });
+          }
+          
+          // Send Slack alert
+          await app.client.chat.postMessage({
+            token: process.env.SLACK_BOT_TOKEN,
+            channel: TIMER_ALERTS_CHANNEL,
+            text: `Status Timer Alert for ${issueKey}`,
+            blocks: messageBlocks
+          });
+          console.log(`✅ Sent status alert to Slack for ${issueKey}`);
+        } else {
+          console.log(`🔕 Weekend mode: Skipped sending status alert to Slack for ${issueKey}`);
+        }
       }
     }
 
@@ -822,71 +857,77 @@ const checkStatusAlerts = async (app) => {
       if (shouldAlert) {
         console.log(`⚠️ Campaign Status threshold exceeded for ${issueKey}: ${Math.round(timeInStatus / 60000)}m in ${tracking.status}`);
         
-        // Ensure channel access before sending
-        await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
-        
-        // Send Slack alert with custom message for NEW REQUEST
-        const isNewRequest = tracking.status.toUpperCase() === 'NEW REQUEST';
-        const isPhase = tracking.status.toUpperCase().startsWith('PHASE ');
-        
-        // Prepare message blocks
-        const messageBlocks = [
-          {
-            type: "header",
-            text: {
-              type: "plain_text",
-              text: isNewRequest ? "⏰ Assignee Action Required" : "⏰ Campaign Status Timer Alert",
-              emoji: true
-            }
-          },
-          {
-            type: "section",
-            fields: [
-              {
-                type: "mrkdwn",
-                text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
-              },
-              {
-                type: "mrkdwn",
-                text: `*Campaign:*\n${tracking.status}`
-              },
-              {
-                type: "mrkdwn",
-                text: isNewRequest 
-                  ? "*Alert:*\nAssignee has been on this task for over 10 minutes"
-                  : isPhase
-                    ? `*Alert:*\nDaily reminder - issue has been in ${tracking.status} for ${Math.round(timeInStatus / (60 * 60 * 1000))} hours`
-                    : `*Current Campaign Status:*\n${tracking.status}`
-              },
-              {
-                type: "mrkdwn",
-                text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
-              }
-            ]
-          }
-        ];
-
-        // Add latest comment section if available
-        if (latestComment) {
-          messageBlocks.push({
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: `*Latest Comment:*\n>${latestComment.text}\n_by ${latestComment.author} at ${new Date(latestComment.created).toLocaleString()}_`
-            }
-          });
-        }
-        
-        await app.client.chat.postMessage({
-          token: process.env.SLACK_BOT_TOKEN,
-          channel: TIMER_ALERTS_CHANNEL,
-          text: `Campaign Status Timer Alert for ${issueKey}`,
-          blocks: messageBlocks
-        });
-
-        // After sending alert, update lastAlertTime
+        // Update lastAlertTime regardless of whether we send to Slack
         activeTracking.campaign[issueKey].lastAlertTime = now;
         dataChanged = true;
+        
+        // Only send to Slack if not weekend
+        if (slackNotificationsEnabled) {
+          // Ensure channel access before sending
+          await ensureChannelAccess(app, TIMER_ALERTS_CHANNEL);
+          
+          // Send Slack alert with custom message for NEW REQUEST
+          const isNewRequest = tracking.status.toUpperCase() === 'NEW REQUEST';
+          const isPhase = tracking.status.toUpperCase().startsWith('PHASE ');
+          
+          // Prepare message blocks
+          const messageBlocks = [
+            {
+              type: "header",
+              text: {
+                type: "plain_text",
+                text: isNewRequest ? "⏰ Assignee Action Required" : "⏰ Campaign Status Timer Alert",
+                emoji: true
+              }
+            },
+            {
+              type: "section",
+              fields: [
+                {
+                  type: "mrkdwn",
+                  text: `*Issue:*\n<https://${process.env.JIRA_HOST}/browse/${issueKey}|${issueKey}>`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Campaign:*\n${tracking.status}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: isNewRequest 
+                    ? "*Alert:*\nAssignee has been on this task for over 10 minutes"
+                    : isPhase
+                      ? `*Alert:*\nDaily reminder - issue has been in ${tracking.status} for ${Math.round(timeInStatus / (60 * 60 * 1000))} hours`
+                      : `*Current Campaign Status:*\n${tracking.status}`
+                },
+                {
+                  type: "mrkdwn",
+                  text: `*Time in Status:*\n${Math.round(timeInStatus / 60000)} minutes`
+                }
+              ]
+            }
+          ];
+
+          // Add latest comment section if available
+          if (latestComment) {
+            messageBlocks.push({
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `*Latest Comment:*\n>${latestComment.text}\n_by ${latestComment.author} at ${new Date(latestComment.created).toLocaleString()}_`
+              }
+            });
+          }
+          
+          await app.client.chat.postMessage({
+            token: process.env.SLACK_BOT_TOKEN,
+            channel: TIMER_ALERTS_CHANNEL,
+            text: `Campaign Status Timer Alert for ${issueKey}`,
+            blocks: messageBlocks
+          });
+          console.log(`✅ Sent campaign alert to Slack for ${issueKey}`);
+        } else {
+          console.log(`🔕 Weekend mode: Skipped sending campaign alert to Slack for ${issueKey}`);
+        }
       }
     }
 
